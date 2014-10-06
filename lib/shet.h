@@ -1,9 +1,16 @@
 #ifndef SHET_H
 #define SHET_H
 
-#include "json.h"
+#include <stdlib.h>
+#include <stdbool.h>
 
-#define BUF_LEN 1024
+#include "jsmn.h"
+
+// The number of JSON tokens to allocate for parsing a single message
+#define SHET_NUM_TOKENS 20
+
+// Number of characters in the buffer used to hold outgoing SHET messages
+#define SHET_BUF_SIZE 100
 
 // #define DEBUG
 
@@ -12,7 +19,7 @@ struct shet_state;
 typedef struct shet_state shet_state;
 
 // All callbacks should be of this type.
-typedef void (*callback_t)(shet_state *, struct json_object *, void *);
+typedef void (*callback_t)(shet_state *, jsmntok_t *, void *);
 
 // Define 4 types of callbacks that we store.
 typedef enum {
@@ -22,6 +29,13 @@ typedef enum {
 	PROP_CB,
 } callback_type;
 
+// Define the types of event callbacks
+typedef enum {
+	EVENT_ECB,
+	EVENT_DELETED_ECB,
+	EVENT_CREATED_ECB,
+} event_callback_type;
+
 typedef struct {
 	int id;
 	callback_t success_callback;
@@ -30,7 +44,7 @@ typedef struct {
 } return_callback;
 
 typedef struct {
-	char *event_name;
+	const char *event_name;
 	callback_t event_callback;
 	callback_t deleted_callback;
 	callback_t created_callback;
@@ -58,11 +72,20 @@ typedef struct callback_list {
 
 // The global shet state.
 struct shet_state {
-	int sockfd;
 	int next_id;
 	callback_list *callbacks;
-	int should_exit;
-	struct json_tokener *json_parser;
+	
+	// Last JSON line received
+	char *line;
+	
+	// A buffer of tokens for JSON strings
+	jsmntok_t tokens[SHET_NUM_TOKENS];
+	
+	// Outgoing JSON buffer
+	char out_buf[SHET_BUF_SIZE];
+	
+	// Function to call to be called to transmit (null-terminated) data
+	void (*transmit)(const char *data);
 	
 	callback_t error_callback;
 	void *error_callback_data;
@@ -70,22 +93,10 @@ struct shet_state {
 
 
 // Make a new state.
-shet_state *shet_new_state();
-// Clean up the state.
-void shet_free_state(shet_state *state);
-// Exit the main loop.
-void shet_exit(shet_state *state);
+void shet_state_init(shet_state *state, void (*transmit)(const char *data));
 
-// Connect to a shet server on a host and port.
-void shet_connect(shet_state *state, char *host, char *port);
-// Connect to the shet server given in the SHET_HOST
-// and SHET_PORT environment variables.
-void shet_connect_default(shet_state *state);
-
-// Do a single read call, and process the results incrementaly.
-void shet_tick(shet_state *state);
 // Process a message from shet.
-void shet_loop(shet_state *state);
+void shet_process_line(shet_state *state, char *line, size_t line_length);
 
 // Set the error callback.
 // The given callback will be called on any unhandled error from shet.
@@ -96,28 +107,33 @@ void shet_set_error_callback(shet_state *state,
 
 // Call an action.
 void shet_call_action(shet_state *state,
-                     char *path,
-                     struct json_object *args,
+                     callback_list *cb_list,
+                     const char *path,
+                     const char *args,
                      callback_t callback,
                      void *callback_arg);
 
 // Get a property.
 void shet_get_prop(shet_state *state,
-                   char *path,
+                   callback_list *cb_list,
+                   const char *path,
                    callback_t callback,
                    void *callback_arg);
 // Set a property.
 void shet_set_prop(shet_state *state,
-                   char *path,
-                   struct json_object *value,
+                   callback_list *cb_list,
+                   const char *path,
+                   const char *value,
                    callback_t callback,
                    void *callback_arg);
 
 // Watch an event.
 void shet_watch_event(shet_state *state,
-                      char *path,
+                      callback_list *cb_list,
+                      const char *path,
                       callback_t event_callback,
                       callback_t deleted_callback,
                       callback_t created_callback,
                       void *callback_arg);
+
 #endif
