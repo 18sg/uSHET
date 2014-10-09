@@ -23,7 +23,12 @@ struct shet_state;
 typedef struct shet_state shet_state;
 
 // All callbacks should be of this type.
-typedef void (*callback_t)(shet_state *, jsmntok_t *, void *);
+// Arguments are:
+// * SHET state object to enable sending responses
+// * A string containing (mangled) JSON sent to the callback
+// * An array of jsmn tokens breaking down the JSON
+// * A user-defined pointer chosen when the callback was defined
+typedef void (*callback_t)(shet_state *, char *, jsmntok_t *, void *);
 
 // Define 4 types of callbacks that we store.
 typedef enum {
@@ -38,14 +43,14 @@ typedef enum {
 	EVENT_ECB,
 	EVENT_DELETED_ECB,
 	EVENT_CREATED_ECB,
-} event_callback_type;
+} event_callback_type_t;
 
 typedef struct {
 	int id;
 	callback_t success_callback;
 	callback_t error_callback;
 	void *user_data;
-} return_callback;
+} return_callback_t;
 
 typedef struct {
 	const char *event_name;
@@ -53,23 +58,23 @@ typedef struct {
 	callback_t deleted_callback;
 	callback_t created_callback;
 	void *user_data;
-} event_callback;
+} event_callback_t;
 
 // Not implemented yet...
 typedef struct {
-} call_callback;
+} call_callback_t;
 
 typedef struct {
-} prop_callback;
+} prop_callback_t;
 
 // A list of callbacks.
 typedef struct deferred {
 	deferred_type_t type;
 	union {
-		return_callback return_cb;
-		event_callback event_cb;
-		call_callback call_cb;
-		prop_callback prop_cb;
+		return_callback_t return_cb;
+		event_callback_t event_cb;
+		call_callback_t call_cb;
+		prop_callback_t prop_cb;
 	} data;
 	struct deferred *next;
 } deferred_t;
@@ -78,9 +83,6 @@ typedef struct deferred {
 struct shet_state {
 	int next_id;
 	deferred_t *callbacks;
-	
-	// Last JSON line received
-	char *line;
 	
 	// A buffer of tokens for JSON strings
 	jsmntok_t tokens[SHET_NUM_TOKENS];

@@ -130,7 +130,7 @@ static deferred_t **find_event_cb(shet_state *state, const char *name)
 ////////////////////////////////////////////////////////////////////////////////
 
 // Deal with a shet 'return' command, calling the appropriate callback.
-static void process_return(shet_state *state, jsmntok_t *tokens)
+static void process_return(shet_state *state, char *line, jsmntok_t *tokens)
 {
 	if (tokens[0].size != 4) {
 		DPRINTF("Return messages should be of length 4\n");
@@ -139,13 +139,13 @@ static void process_return(shet_state *state, jsmntok_t *tokens)
 	
 	// Requests sent by uSHET always use integer IDs. Note this string is always a
 	// substring surrounded by non-numbers so atoi is safe.
-	if (!assert_int(state->line, &(tokens[1]))) return;
-	int id = atoi(state->line + tokens[1].start);
+	if (!assert_int(line, &(tokens[1]))) return;
+	int id = atoi(line + tokens[1].start);
 	
 	// The success/fail value should be an int. Note this string is always a
 	// substring surrounded by non-numbers so atoi is safe.
-	if (!assert_int(state->line, &(tokens[3]))) return;
-	int success = atoi(state->line + tokens[3].start);
+	if (!assert_int(line, &(tokens[3]))) return;
+	int success = atoi(line + tokens[3].start);
 	
 	// The returned value can be any JSON object
 	jsmntok_t *value_token = tokens+4;
@@ -185,13 +185,13 @@ static void process_return(shet_state *state, jsmntok_t *tokens)
 	
 	// Run the callback if it's not null.
 	if (callback_fun != NULL)
-		callback_fun(state, value_token, user_data);
+		callback_fun(state, line, value_token, user_data);
 }
 
 
 // Process an evant callback.
 // Ad the processing is basically the same.
-static void process_event(shet_state *state, jsmntok_t *tokens, event_callback_type type)
+static void process_event(shet_state *state, char *line, jsmntok_t *tokens, event_callback_type_t type)
 {
 	if (tokens[0].size < 3) {
 		DPRINTF("Event messages should be at least 3 parts.\n");
@@ -201,8 +201,8 @@ static void process_event(shet_state *state, jsmntok_t *tokens, event_callback_t
 	// Get the name. It is safe to clobber the char after the name since it will
 	// be a pair of quotes as part of the JSON syntax.
 	if (!assert_type(&(tokens[3]), JSMN_STRING)) return;
-	const char *name = state->line + tokens[3].start;
-	state->line[tokens[3].end] = '\0';
+	const char *name = line + tokens[3].start;
+	line[tokens[3].end] = '\0';
 	
 	// Find the callback for this event.
 	deferred_t **callback = find_event_cb(state, name);
@@ -226,12 +226,12 @@ static void process_event(shet_state *state, jsmntok_t *tokens, event_callback_t
 	tokens[3].size -= 2;
 	
 	if (callback_fun != NULL)
-		callback_fun(state, &(tokens[3]), user_data);
+		callback_fun(state, line, &(tokens[3]), user_data);
 }
 
 
 // Process a message from shet.
-static void process_message(shet_state *state, jsmntok_t *tokens)
+static void process_message(shet_state *state, char *line, jsmntok_t *tokens)
 {
 	if (!assert_type(&(tokens[0]), JSMN_ARRAY)) return;
 	if (tokens[0].size < 2) {
@@ -242,18 +242,18 @@ static void process_message(shet_state *state, jsmntok_t *tokens)
 	// Note that the command is at least followed by the closing bracket and if
 	// not a comma and so nulling out the character following it is safe.
 	if (!assert_type(&(tokens[2]), JSMN_STRING)) return;
-	const char *command = state->line + tokens[2].start;
-	state->line[tokens[2].end] = '\0';
+	const char *command = line + tokens[2].start;
+	line[tokens[2].end] = '\0';
 	
 	// Extract args in indiviaual handling functions -- too much effort to do here.
 	if (strcmp(command, "return") == 0)
-		process_return(state, tokens);
+		process_return(state, line, tokens);
 	else if (strcmp(command, "event") == 0)
-		process_event(state, tokens, EVENT_ECB);
+		process_event(state, line, tokens, EVENT_ECB);
 	else if (strcmp(command, "eventdeleted") == 0)
-		process_event(state, tokens, EVENT_DELETED_ECB);
+		process_event(state, line, tokens, EVENT_DELETED_ECB);
 	else if (strcmp(command, "eventcreated") == 0)
-		process_event(state, tokens, EVENT_CREATED_ECB);
+		process_event(state, line, tokens, EVENT_CREATED_ECB);
 	else
 		DPRINTF("unsupported command: \"%s\"\n", command);
 }
@@ -345,8 +345,6 @@ void shet_process_line(shet_state *state, char *line, size_t line_length)
 		return;
 	}
 	
-	state->line = line;
-	
 	jsmn_parser p;
 	jsmn_init(&p);
 	
@@ -371,7 +369,7 @@ void shet_process_line(shet_state *state, char *line, size_t line_length)
 		
 		default:
 			if ((int)e > 0) {
-				process_message(state, state->tokens);
+				process_message(state, line, state->tokens);
 			} else {
 				DPRINTF("No tokens in JSON in shet_process_line.\n");
 			}
