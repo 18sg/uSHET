@@ -110,6 +110,11 @@ void shet_set_error_callback(shet_state *state,
                              callback_t callback,
                              void *callback_arg);
 
+// Un-register a given deferred. This is intended for use in timeout-like
+// scenarios or in the event of an action failing resulting a deferred being
+// redundant. It does not cause the underlying event to be unregistered.
+void shet_cancel_deferred(shet_state *state, deferred_t *deferred);
+
 // Ping the server
 void shet_ping(shet_state *state,
                const char *args,

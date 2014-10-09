@@ -65,9 +65,11 @@ static bool assert_deferred_not_in_use(deferred_t *d) {
 // Internal deferred utility functions/macros
 ////////////////////////////////////////////////////////////////////////////////
 
-// Given a double-pointer to an existing list of deferreds, makes sure that the
-// deferred is in the list (adding it if it isn't already present).
-static void add_deferred(deferred_t **deferreds, deferred_t *deferred) {
+// Given shet state, makes sure that the deferred is in the callback list,
+// adding it if it isn't already present.
+static void add_deferred(shet_state *state, deferred_t *deferred) {
+	deferred_t **deferreds = &(state->callbacks);
+	
 	// Check to see if the deferred is already present
 	deferred_t *iter = (*deferreds);
 	for (; iter != NULL; iter = iter->next)
@@ -81,24 +83,35 @@ static void add_deferred(deferred_t **deferreds, deferred_t *deferred) {
 	}
 }
 
-// Takes a double-pointer to a deferred within a list of deferreds and removes it
-// from the list.
-void remove_deferred(deferred_t **d) {
-	deferred_t *next = (*d)->next;
-	(*d) = next;
+
+// Given a shet state make sure that the deferred is not in the callback list,
+// removing it if it is.
+void remove_deferred(shet_state *state, deferred_t *deferred) {
+	deferred_t **deferreds = &(state->callbacks);
+	
+	// Find the deferred, if present
+	deferred_t *iter = (*deferreds);
+	for (; iter != NULL; iter = iter->next) {
+		if (iter->next == deferred) {
+			deferred_t *next = iter->next->next;
+			iter->next->next = NULL;
+			iter->next = next;
+			break;
+		}
+	}
 }
 
 
-// Find a deferred callback for the return with the given ID
+// Find a deferred callback for the return with the given ID.
 // Return NULL if not found.
-static deferred_t **find_return_cb(shet_state *state, int id)
+static deferred_t *find_return_cb(shet_state *state, int id)
 {
-	deferred_t **callback = &(state->callbacks);
-	for (; *callback != NULL; callback = &(*callback)->next)
-		if ((*callback)->type == RETURN_CB && (*callback)->data.return_cb.id == id)
+	deferred_t *callback = state->callbacks;
+	for (; callback != NULL; callback = callback->next)
+		if (callback->type == RETURN_CB && callback->data.return_cb.id == id)
 			break;
 	
-	if (*callback == NULL) {
+	if (callback == NULL) {
 		DPRINTF("No callback for id %d\n", id);
 		return NULL;
 	}
@@ -109,15 +122,15 @@ static deferred_t **find_return_cb(shet_state *state, int id)
 
 // Find a callnack for the named event.
 // Return NULL if not found.
-static deferred_t **find_event_cb(shet_state *state, const char *name)
+static deferred_t *find_event_cb(shet_state *state, const char *name)
 {
-	deferred_t **callback = &(state->callbacks);
-	for (; *callback != NULL; callback = &(*callback)->next)
-		if ((*callback)->type == EVENT_CB && 
-		    strcmp((*callback)->data.event_cb.event_name, name) == 0)
+	deferred_t *callback = state->callbacks;
+	for (; callback != NULL; callback = callback->next)
+		if (callback->type == EVENT_CB && 
+		    strcmp(callback->data.event_cb.event_name, name) == 0)
 			break;
 	
-	if (*callback == NULL) {
+	if (callback == NULL) {
 		DPRINTF("No callback for event %s\n", name);
 		return NULL;
 	}
@@ -151,8 +164,8 @@ static void process_return(shet_state *state, char *line, jsmntok_t *tokens)
 	jsmntok_t *value_token = tokens+4;
 	
 	// Find the right callback.
-	deferred_t **callback = find_return_cb(state, id);
-	if (*callback == NULL)
+	deferred_t *callback = find_return_cb(state, id);
+	if (callback == NULL)
 		return;
 	
 	// We want to leave everything in a consistent state, as the callback might
@@ -161,14 +174,14 @@ static void process_return(shet_state *state, char *line, jsmntok_t *tokens)
 	// main loop.
 	
 	// User-supplied data.
-	void *user_data = (*callback)->data.return_cb.user_data;
+	void *user_data = callback->data.return_cb.user_data;
 	
 	// Either the success or fail callback.
 	callback_t callback_fun;
 	if (success == 0)
-		callback_fun = (*callback)->data.return_cb.success_callback;
+		callback_fun = callback->data.return_cb.success_callback;
 	else if (success == 1) {
-		callback_fun = (*callback)->data.return_cb.error_callback;
+		callback_fun = callback->data.return_cb.error_callback;
 		// Fall back to default error callback.
 		if (callback_fun == NULL) {
 			callback_fun = state->error_callback;
@@ -181,7 +194,7 @@ static void process_return(shet_state *state, char *line, jsmntok_t *tokens)
 	
 	// Remove the callback from the list and clear the fields to indicate that the
 	// callback is not registered.
-	remove_deferred(callback);
+	remove_deferred(state, callback);
 	
 	// Run the callback if it's not null.
 	if (callback_fun != NULL)
@@ -205,20 +218,20 @@ static void process_event(shet_state *state, char *line, jsmntok_t *tokens, even
 	line[tokens[3].end] = '\0';
 	
 	// Find the callback for this event.
-	deferred_t **callback = find_event_cb(state, name);
+	deferred_t *callback = find_event_cb(state, name);
 	if (callback == NULL)
 		return;
 	
 	// Get the callback and user data.
 	callback_t callback_fun;
 	switch (type) {
-		case EVENT_ECB:         callback_fun = (*callback)->data.event_cb.event_callback; break;
-		case EVENT_DELETED_ECB: callback_fun = (*callback)->data.event_cb.deleted_callback; break;
-		case EVENT_CREATED_ECB: callback_fun = (*callback)->data.event_cb.created_callback; break;
+		case EVENT_ECB:         callback_fun = callback->data.event_cb.event_callback; break;
+		case EVENT_DELETED_ECB: callback_fun = callback->data.event_cb.deleted_callback; break;
+		case EVENT_CREATED_ECB: callback_fun = callback->data.event_cb.created_callback; break;
 		default: DPRINTF("This error was put here to make the compiler STFU. "
 		                 "If you've just seen this message, then [tomn] is an idiot.\n");
 	}
-	void *user_data = (*callback)->data.event_cb.user_data;
+	void *user_data = callback->data.event_cb.user_data;
 	
 	// Extract the arguments. Simply truncate the command array (destroys the
 	// preceeding token).
@@ -272,12 +285,12 @@ static int send_command(shet_state *state,
 	
 	// Construct the command...
 	snprintf( state->out_buf, SHET_BUF_SIZE-1
-	        , "[%d,%s%s%s\"%s\"%s%s]\n"
+	        , "[%d,\"%s\"%s%s%s%s%s]\n"
 	        , id
 	        , command_name
-	        , path ? "\"" : ""
-	        , path
-	        , path ? "\",": ""
+	        , path ? ",\"" : ""
+	        , path ? path : ""
+	        , path ? "\"": ""
 	        , args ? ","  : ""
 	        , args ? args : ""
 	        );
@@ -312,7 +325,7 @@ static void send_command_cb(shet_state *state,
 	deferred->data.return_cb.user_data = callback_arg;
 	
 	// Push it onto the list.
-	add_deferred(&(state->callbacks), deferred);
+	add_deferred(state, deferred);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -377,6 +390,11 @@ void shet_process_line(shet_state *state, char *line, size_t line_length)
 			}
 			break;
 	}
+}
+
+// Cancel a deferred
+void shet_cancel_deferred(shet_state *state, deferred_t *deferred) {
+	remove_deferred(state, deferred);
 }
 
 // Send a ping
@@ -456,7 +474,7 @@ void shet_watch_event(shet_state *state,
 	event_deferred->data.event_cb.user_data = callback_arg;
 	
 	// And push it onto the callback list.
-	add_deferred(&(state->callbacks), event_deferred);
+	add_deferred(state, event_deferred);
 	
 	// Finally, send the command (and optionally set up a callback for the return.
 	// If no callback is required, the return will simply not be matched against
