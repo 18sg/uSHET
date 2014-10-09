@@ -110,6 +110,13 @@ void shet_set_error_callback(shet_state *state,
                              callback_t callback,
                              void *callback_arg);
 
+// Ping the server
+void shet_ping(shet_state *state,
+               const char *args,
+               deferred_t *deferred,
+               callback_t callback,
+               callback_t err_callback,
+               void *callback_arg);
 
 // Call an action.
 void shet_call_action(shet_state *state,

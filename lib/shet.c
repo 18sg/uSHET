@@ -272,10 +272,12 @@ static int send_command(shet_state *state,
 	
 	// Construct the command...
 	snprintf( state->out_buf, SHET_BUF_SIZE-1
-	        , "[%d,\"%s\",\"%s\"%s%s]\n"
+	        , "[%d,%s%s%s\"%s\"%s%s]\n"
 	        , id
 	        , command_name
+	        , path ? "\"" : ""
 	        , path
+	        , path ? "\",": ""
 	        , args ? ","  : ""
 	        , args ? args : ""
 	        );
@@ -375,6 +377,17 @@ void shet_process_line(shet_state *state, char *line, size_t line_length)
 			}
 			break;
 	}
+}
+
+// Send a ping
+void shet_ping(shet_state *state,
+               const char *args,
+               deferred_t *deferred,
+               callback_t callback,
+               callback_t err_callback,
+               void *callback_arg)
+{
+	send_command_cb(state, "ping", NULL, args, deferred, callback, err_callback, callback_arg);
 }
 
 // Call an action.
