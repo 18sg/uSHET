@@ -140,13 +140,14 @@ void shet_set_prop(shet_state *state,
 void shet_watch_event(shet_state *state,
                       const char *path,
                       deferred_t *event_deferred,
-                      deferred_t *watch_deferred,
                       callback_t event_callback,
                       callback_t deleted_callback,
                       callback_t created_callback,
+                      void *callback_arg,
+                      deferred_t *watch_deferred,
                       callback_t watch_callback,
                       callback_t watch_error_callback,
-                      void *callback_arg);
+                      void *watch_callback_arg);
 
 #ifdef __cplusplus
 }

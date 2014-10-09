@@ -424,13 +424,14 @@ void shet_set_prop(shet_state *state,
 void shet_watch_event(shet_state *state,
                       const char *path,
                       deferred_t *event_deferred,
-                      deferred_t *watch_deferred,
                       callback_t event_callback,
                       callback_t deleted_callback,
                       callback_t created_callback,
+                      void *callback_arg,
+                      deferred_t *watch_deferred,
                       callback_t watch_callback,
                       callback_t watch_error_callback,
-                      void *callback_arg)
+                      void *watch_callback_arg)
 {
 	// Make a callback for the event.
 	if (!assert_deferred_not_in_use(event_deferred)) return;
@@ -450,7 +451,7 @@ void shet_watch_event(shet_state *state,
 	if (watch_deferred != NULL) {
 		if (!assert_deferred_not_in_use(watch_deferred)) return;
 		send_command_cb(state, "watch", path, NULL,
-		                watch_deferred, watch_callback, watch_error_callback, callback_arg);
+		                watch_deferred, watch_callback, watch_error_callback, watch_callback_arg);
 	} else {
 		send_command(state, "watch", path, NULL);
 	}
