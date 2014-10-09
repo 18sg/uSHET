@@ -6,6 +6,10 @@
 
 #include "jsmn.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The number of JSON tokens to allocate for parsing a single message
 #define SHET_NUM_TOKENS 20
 
@@ -27,7 +31,7 @@ typedef enum {
 	EVENT_CB,
 	CALL_CB,
 	PROP_CB,
-} callback_type;
+} deferred_type_t;
 
 // Define the types of event callbacks
 typedef enum {
@@ -59,21 +63,21 @@ typedef struct {
 } prop_callback;
 
 // A list of callbacks.
-typedef struct callback_list {
-	callback_type type;
+typedef struct deferred {
+	deferred_type_t type;
 	union {
 		return_callback return_cb;
 		event_callback event_cb;
 		call_callback call_cb;
 		prop_callback prop_cb;
 	} data;
-	struct callback_list *next;
-} callback_list;
+	struct deferred *next;
+} deferred_t;
 
 // The global shet state.
 struct shet_state {
 	int next_id;
-	callback_list *callbacks;
+	deferred_t *callbacks;
 	
 	// Last JSON line received
 	char *line;
@@ -92,7 +96,7 @@ struct shet_state {
 };
 
 
-// Make a new state.
+// Initialise the SHET state variable
 void shet_state_init(shet_state *state, void (*transmit)(const char *data));
 
 // Process a message from shet.
@@ -107,33 +111,43 @@ void shet_set_error_callback(shet_state *state,
 
 // Call an action.
 void shet_call_action(shet_state *state,
-                     callback_list *cb_list,
                      const char *path,
                      const char *args,
+                     deferred_t *deferred,
                      callback_t callback,
+                     callback_t err_callback,
                      void *callback_arg);
 
 // Get a property.
 void shet_get_prop(shet_state *state,
-                   callback_list *cb_list,
                    const char *path,
+                   deferred_t *deferred,
                    callback_t callback,
+                   callback_t err_callback,
                    void *callback_arg);
 // Set a property.
 void shet_set_prop(shet_state *state,
-                   callback_list *cb_list,
                    const char *path,
                    const char *value,
+                   deferred_t *deferred,
                    callback_t callback,
+                   callback_t err_callback,
                    void *callback_arg);
 
 // Watch an event.
 void shet_watch_event(shet_state *state,
-                      callback_list *cb_list,
                       const char *path,
+                      deferred_t *event_deferred,
+                      deferred_t *watch_deferred,
                       callback_t event_callback,
                       callback_t deleted_callback,
                       callback_t created_callback,
+                      callback_t watch_callback,
+                      callback_t watch_error_callback,
                       void *callback_arg);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
