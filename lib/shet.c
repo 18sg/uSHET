@@ -572,11 +572,10 @@ static void shet_return_with_id(shet_state *state,
 {
 	// Construct the command...
 	snprintf( state->out_buf, SHET_BUF_SIZE-1
-	        , "[%s,\"return\",%d%s%s]\n"
+	        , "[%s,\"return\",%d,%s]\n"
 	        , id
 	        , success
-	        , value ? "," : ""
-	        , value ? value : ""
+	        , value ? value : "[]"
 	        );
 	state->out_buf[SHET_BUF_SIZE-1] = '\0';
 	
