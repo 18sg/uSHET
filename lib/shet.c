@@ -158,36 +158,31 @@ static void process_return(shet_state *state, jsmntok_t *tokens)
 	
 	// Find the right callback.
 	deferred_t *callback = find_return_cb(state, id);
-	if (callback == NULL)
-		return;
 	
 	// We want to leave everything in a consistent state, as the callback might
 	// make another call to this lib, so get the info we need, "free" everything,
 	// *then* callback.  Ideally, we should 'return' the callback to be ran in the
 	// main loop.
 	
-	// User-supplied data.
-	void *user_data = callback->data.return_cb.user_data;
-	
-	// Either the success or fail callback.
+	// Select either the success or fail callback (or fall-back on the 
 	callback_t callback_fun;
-	if (success == 0)
-		callback_fun = callback->data.return_cb.success_callback;
-	else if (success == 1) {
-		callback_fun = callback->data.return_cb.error_callback;
-		// Fall back to default error callback.
-		if (callback_fun == NULL) {
-			callback_fun = state->error_callback;
-			user_data = state->error_callback_data;
+	void *user_data = callback->data.return_cb.user_data;
+	if (callback != NULL) {
+		if (success == 0)
+			callback_fun = callback->data.return_cb.success_callback;
+		else if (success != 0) {
+			callback_fun = callback->data.return_cb.error_callback;
+			// Fall back to default error callback.
+			if (callback_fun == NULL) {
+				callback_fun = state->error_callback;
+				user_data = state->error_callback_data;
+			}
 		}
+		remove_deferred(state, callback);
 	} else {
-		DPRINTF("Bad success/fail value.\n");
-		return;
+		callback_fun = state->error_callback;
+		user_data    = state->error_callback_data;
 	}
-	
-	// Remove the callback from the list and clear the fields to indicate that the
-	// callback is not registered.
-	remove_deferred(state, callback);
 	
 	// Run the callback if it's not null.
 	if (callback_fun != NULL)
@@ -228,7 +223,7 @@ static void process_command(shet_state *state, jsmntok_t *tokens, command_callba
 	state->line[tokens[3].end] = '\0';
 	
 	// Find the callback for this event.
-	deferred_t *callback = find_named_cb(state, name, EVENT_CB);
+	deferred_t *callback = find_named_cb(state, name, type);
 	if (callback == NULL)
 		return;
 	
@@ -531,7 +526,7 @@ void shet_ping(shet_state *state,
 
 
 // Isolate the string containing the return ID.
-static char *shet_get_return_id(shet_state *state)
+char *shet_get_return_id(shet_state *state)
 {
 	// Add the appropriate prefix/postfix to the incoming ID based on the type and
 	// null terminate it. This is safe since the ID is part of an array and thus
@@ -565,10 +560,10 @@ static char *shet_get_return_id(shet_state *state)
 
 
 // Return a response to the last command received
-static void shet_return_with_id(shet_state *state,
-                                const char *id,
-                                int success,
-                                const char *value)
+void shet_return_with_id(shet_state *state,
+                         const char *id,
+                         int success,
+                         const char *value)
 {
 	// Construct the command...
 	snprintf( state->out_buf, SHET_BUF_SIZE-1
@@ -585,9 +580,9 @@ static void shet_return_with_id(shet_state *state,
 
 
 // Return a response to the last command received
-static void shet_return(shet_state *state,
-                        int success,
-                        const char *value)
+void shet_return(shet_state *state,
+                 int success,
+                 const char *value)
 {
 	shet_return_with_id(state,
 	                    shet_get_return_id(state),

@@ -178,25 +178,25 @@ void shet_ping(shet_state *state,
 
 // Return a response to the last command received. This should be called within
 // the callback functions registered for actions and properties.
-static void shet_return(shet_state *state,
-                        int success,
-                        const char *value);
+void shet_return(shet_state *state,
+                 int success,
+                 const char *value);
 
 // Like shet_return except the ID used is that specified rather than the last
 // command executed. This function can thus be used outside a SHET callback
 // function and thus be used for asynchronous responses. The caller is
 // responsible for storing the return ID during the original callback using
 // shet_get_return_id.
-static void shet_return_with_id(shet_state *state,
-                                const char *id,
-                                int success,
-                                const char *value);
+void shet_return_with_id(shet_state *state,
+                         const char *id,
+                         int success,
+                         const char *value);
 
 // Get the string containing the return ID for the last command received. The
 // pointer returned is valid until the next command is processed, i.e. the
 // string is safe for the duration of a callback and should be copied if
 // required afterward.
-static char *shet_get_return_id(shet_state *state);
+char *shet_get_return_id(shet_state *state);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Action Functions
