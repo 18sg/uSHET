@@ -113,7 +113,14 @@ typedef struct event {
 
 // The global shet state.
 struct shet_state {
+	// Next ID to use when sending a command
 	int next_id;
+	
+	// The token defining the ID of the last command received. (Used for
+	// returning).
+	jsmntok_t *recv_id;
+	
+	// Linked lists of registered callback deferreds and event registrations
 	deferred_t *callbacks;
 	event_t *registered_events;
 	
@@ -165,6 +172,13 @@ void shet_ping(shet_state *state,
                callback_t callback,
                callback_t err_callback,
                void *callback_arg);
+
+// Return a response to the last command received. This should be called within
+// the callback functions registered for actions and properties.
+static void shet_return(shet_state *state,
+                        char *line,
+                        int success,
+                        const char *value);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Action Functions

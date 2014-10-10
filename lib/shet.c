@@ -337,6 +337,7 @@ static void send_command(shet_state *state,
 	        , args ? ","  : ""
 	        , args ? args : ""
 	        );
+	state->out_buf[SHET_BUF_SIZE-1] = '\0';
 	
 	// ...and send it
 	state->transmit(state->out_buf);
@@ -524,6 +525,61 @@ void shet_ping(shet_state *state,
 	             deferred,
 	             callback, err_callback,
 	             callback_arg);
+}
+
+
+// Return a response to the last command received
+static void shet_return(shet_state *state,
+                        char *line,
+                        int success,
+                        const char *value)
+{
+	// Null-terminate the sending ID (which is safe due to the ID being part of an
+	// array and thus at least being followed by a terminator).
+	line[state->recv_id->end] = '\0';
+	char *id = line + state->recv_id->start;
+	
+	// Re-add the appropriate prefix/postfix to the incoming ID
+	char id_prefix;
+	char id_postfix;
+	switch (state->recv_id->type) {
+		case JSMN_STRING:
+			id_prefix  = '\"';
+			id_postfix = '\"';
+			break;
+			
+		case JSMN_ARRAY:
+			id_prefix  = '[';
+			id_postfix = ']';
+			break;
+			
+		case JSMN_OBJECT:
+			id_prefix  = '{';
+			id_postfix = '}';
+			break;
+			
+		
+		default:
+		case JSMN_PRIMITIVE:
+			id_prefix  = ' ';
+			id_postfix = ' ';
+			break;
+	}
+	
+	// Construct the command...
+	snprintf( state->out_buf, SHET_BUF_SIZE-1
+	        , "[%c%s%c,\"return\",%d%s%s]\n"
+	        , id_prefix
+	        , id
+	        , id_postfix
+	        , success
+	        , value ? "," : ""
+	        , value ? value : ""
+	        );
+	state->out_buf[SHET_BUF_SIZE-1] = '\0';
+	
+	// ...and send it
+	state->transmit(state->out_buf);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
