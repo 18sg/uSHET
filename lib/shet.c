@@ -136,7 +136,7 @@ static deferred_t *find_named_cb(shet_state *state, const char *name, deferred_t
 ////////////////////////////////////////////////////////////////////////////////
 
 // Deal with a shet 'return' command, calling the appropriate callback.
-static void process_return(shet_state *state, char *line, jsmntok_t *tokens)
+static void process_return(shet_state *state, jsmntok_t *tokens)
 {
 	if (tokens[0].size != 4) {
 		DPRINTF("Return messages should be of length 4\n");
@@ -145,13 +145,13 @@ static void process_return(shet_state *state, char *line, jsmntok_t *tokens)
 	
 	// Requests sent by uSHET always use integer IDs. Note this string is always a
 	// substring surrounded by non-numbers so atoi is safe.
-	if (!assert_int(line, &(tokens[1]))) return;
-	int id = atoi(line + tokens[1].start);
+	if (!assert_int(state->line, &(tokens[1]))) return;
+	int id = atoi(state->line + tokens[1].start);
 	
 	// The success/fail value should be an int. Note this string is always a
 	// substring surrounded by non-numbers so atoi is safe.
-	if (!assert_int(line, &(tokens[3]))) return;
-	int success = atoi(line + tokens[3].start);
+	if (!assert_int(state->line, &(tokens[3]))) return;
+	int success = atoi(state->line + tokens[3].start);
 	
 	// The returned value can be any JSON object
 	jsmntok_t *value_token = tokens+4;
@@ -191,12 +191,12 @@ static void process_return(shet_state *state, char *line, jsmntok_t *tokens)
 	
 	// Run the callback if it's not null.
 	if (callback_fun != NULL)
-		callback_fun(state, line, value_token, user_data);
+		callback_fun(state, state->line, value_token, user_data);
 }
 
 
 // Process an command from the server
-static void process_command(shet_state *state, char *line, jsmntok_t *tokens, command_callback_type_t type)
+static void process_command(shet_state *state, jsmntok_t *tokens, command_callback_type_t type)
 {
 	size_t min_num_parts;
 	switch (type) {
@@ -224,8 +224,8 @@ static void process_command(shet_state *state, char *line, jsmntok_t *tokens, co
 	// Get the name. It is safe to clobber the char after the name since it will
 	// be a pair of quotes as part of the JSON syntax.
 	if (!assert_type(&(tokens[3]), JSMN_STRING)) return;
-	const char *name = line + tokens[3].start;
-	line[tokens[3].end] = '\0';
+	const char *name = state->line + tokens[3].start;
+	state->line[tokens[3].end] = '\0';
 	
 	// Find the callback for this event.
 	deferred_t *callback = find_named_cb(state, name, EVENT_CB);
@@ -271,12 +271,12 @@ static void process_command(shet_state *state, char *line, jsmntok_t *tokens, co
 	tokens[3].size -= 2;
 	
 	if (callback_fun != NULL)
-		callback_fun(state, line, &(tokens[3]), user_data);
+		callback_fun(state, state->line, &(tokens[3]), user_data);
 }
 
 
 // Process a message from shet.
-static void process_message(shet_state *state, char *line, jsmntok_t *tokens)
+static void process_message(shet_state *state, jsmntok_t *tokens)
 {
 	if (!assert_type(&(tokens[0]), JSMN_ARRAY)) return;
 	if (tokens[0].size < 2) {
@@ -287,24 +287,24 @@ static void process_message(shet_state *state, char *line, jsmntok_t *tokens)
 	// Note that the command is at least followed by the closing bracket and if
 	// not a comma and so nulling out the character following it is safe.
 	if (!assert_type(&(tokens[2]), JSMN_STRING)) return;
-	const char *command = line + tokens[2].start;
-	line[tokens[2].end] = '\0';
+	const char *command = state->line + tokens[2].start;
+	state->line[tokens[2].end] = '\0';
 	
 	// Extract args in indiviaual handling functions -- too much effort to do here.
 	if (strcmp(command, "return") == 0)
-		process_return(state, line, tokens);
+		process_return(state, tokens);
 	else if (strcmp(command, "event") == 0)
-		process_command(state, line, tokens, EVENT_CCB);
+		process_command(state, tokens, EVENT_CCB);
 	else if (strcmp(command, "eventdeleted") == 0)
-		process_command(state, line, tokens, EVENT_DELETED_CCB);
+		process_command(state, tokens, EVENT_DELETED_CCB);
 	else if (strcmp(command, "eventcreated") == 0)
-		process_command(state, line, tokens, EVENT_CREATED_CCB);
+		process_command(state, tokens, EVENT_CREATED_CCB);
 	else if (strcmp(command, "getprop") == 0)
-		process_command(state, line, tokens, GET_PROP_CCB);
+		process_command(state, tokens, GET_PROP_CCB);
 	else if (strcmp(command, "setprop") == 0)
-		process_command(state, line, tokens, SET_PROP_CCB);
+		process_command(state, tokens, SET_PROP_CCB);
 	else if (strcmp(command, "docall") == 0)
-		process_command(state, line, tokens, CALL_CCB);
+		process_command(state, tokens, CALL_CCB);
 	else
 		DPRINTF("unsupported command: \"%s\"\n", command);
 }
@@ -392,11 +392,13 @@ void shet_process_line(shet_state *state, char *line, size_t line_length)
 		return;
 	}
 	
+	state->line = line;
+	
 	jsmn_parser p;
 	jsmn_init(&p);
 	
 	jsmnerr_t e = jsmn_parse( &p
-	                        , line
+	                        , state->line
 	                        , line_length
 	                        , state->tokens
 	                        , SHET_NUM_TOKENS
@@ -416,7 +418,7 @@ void shet_process_line(shet_state *state, char *line, size_t line_length)
 		
 		default:
 			if ((int)e > 0) {
-				process_message(state, line, state->tokens);
+				process_message(state, state->tokens);
 			} else {
 				DPRINTF("No tokens in JSON in shet_process_line.\n");
 			}
@@ -528,50 +530,50 @@ void shet_ping(shet_state *state,
 }
 
 
-// Return a response to the last command received
-static void shet_return(shet_state *state,
-                        char *line,
-                        int success,
-                        const char *value)
+// Isolate the string containing the return ID.
+static char *shet_get_return_id(shet_state *state)
 {
-	// Null-terminate the sending ID (which is safe due to the ID being part of an
-	// array and thus at least being followed by a terminator).
-	line[state->recv_id->end] = '\0';
-	char *id = line + state->recv_id->start;
-	
-	// Re-add the appropriate prefix/postfix to the incoming ID
-	char id_prefix;
-	char id_postfix;
+	// Add the appropriate prefix/postfix to the incoming ID based on the type and
+	// null terminate it. This is safe since the ID is part of an array and thus
+	// there is at least one trailing character which can be clobbered (the comma)
+	// with the null.
 	switch (state->recv_id->type) {
 		case JSMN_STRING:
-			id_prefix  = '\"';
-			id_postfix = '\"';
-			break;
-			
+			state->line[state->recv_id->start - 1] = '\"';
+			state->line[state->recv_id->end]       = '\"';
+			state->line[state->recv_id->end + 1]   = '\0';
+			return state->line + state->recv_id->start - 1;
+		
 		case JSMN_ARRAY:
-			id_prefix  = '[';
-			id_postfix = ']';
-			break;
-			
+			state->line[state->recv_id->start - 1] = '[';
+			state->line[state->recv_id->end]       = ']';
+			state->line[state->recv_id->end + 1]   = '\0';
+			return state->line + state->recv_id->start - 1;
+		
 		case JSMN_OBJECT:
-			id_prefix  = '{';
-			id_postfix = '}';
-			break;
-			
+			state->line[state->recv_id->start - 1] = '{';
+			state->line[state->recv_id->end]       = '}';
+			state->line[state->recv_id->end + 1]   = '\0';
+			return state->line + state->recv_id->start - 1;
 		
 		default:
 		case JSMN_PRIMITIVE:
-			id_prefix  = ' ';
-			id_postfix = ' ';
-			break;
+			state->line[state->recv_id->end] = '\0';
+			return state->line + state->recv_id->start;
 	}
-	
+}
+
+
+// Return a response to the last command received
+static void shet_return_with_id(shet_state *state,
+                                const char *id,
+                                int success,
+                                const char *value)
+{
 	// Construct the command...
 	snprintf( state->out_buf, SHET_BUF_SIZE-1
-	        , "[%c%s%c,\"return\",%d%s%s]\n"
-	        , id_prefix
+	        , "[%s,\"return\",%d%s%s]\n"
 	        , id
-	        , id_postfix
 	        , success
 	        , value ? "," : ""
 	        , value ? value : ""
@@ -580,6 +582,18 @@ static void shet_return(shet_state *state,
 	
 	// ...and send it
 	state->transmit(state->out_buf);
+}
+
+
+// Return a response to the last command received
+static void shet_return(shet_state *state,
+                        int success,
+                        const char *value)
+{
+	shet_return_with_id(state,
+	                    shet_get_return_id(state),
+	                    success,
+	                    value);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
