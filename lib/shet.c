@@ -57,7 +57,7 @@ static bool assert_int(const char *line, const jsmntok_t *token)
 
 // Given shet state, makes sure that the deferred is in the callback list,
 // adding it if it isn't already present.
-static void add_deferred(shet_state *state, deferred_t *deferred) {
+static void add_deferred(shet_state_t *state, deferred_t *deferred) {
 	deferred_t **deferreds = &(state->callbacks);
 	
 	// Check to see if the deferred is already present
@@ -76,7 +76,7 @@ static void add_deferred(shet_state *state, deferred_t *deferred) {
 
 // Given a shet state make sure that the deferred is not in the callback list,
 // removing it if it is.
-void remove_deferred(shet_state *state, deferred_t *deferred) {
+void remove_deferred(shet_state_t *state, deferred_t *deferred) {
 	// Find the deferred, if present
 	deferred_t **iter = &(state->callbacks);
 	for (; (*iter) != NULL; iter = &((*iter)->next)) {
@@ -90,7 +90,7 @@ void remove_deferred(shet_state *state, deferred_t *deferred) {
 
 // Find a deferred callback for the return with the given ID.
 // Return NULL if not found.
-static deferred_t *find_return_cb(shet_state *state, int id)
+static deferred_t *find_return_cb(shet_state_t *state, int id)
 {
 	deferred_t *callback = state->callbacks;
 	for (; callback != NULL; callback = callback->next)
@@ -108,7 +108,7 @@ static deferred_t *find_return_cb(shet_state *state, int id)
 
 // Find a callnack for the named event/property/action.
 // Return NULL if not found.
-static deferred_t *find_named_cb(shet_state *state, const char *name, deferred_type_t type)
+static deferred_t *find_named_cb(shet_state_t *state, const char *name, deferred_type_t type)
 {
 	deferred_t *callback = state->callbacks;
 	for (; callback != NULL; callback = callback->next)
@@ -136,7 +136,7 @@ static deferred_t *find_named_cb(shet_state *state, const char *name, deferred_t
 ////////////////////////////////////////////////////////////////////////////////
 
 // Deal with a shet 'return' command, calling the appropriate callback.
-static void process_return(shet_state *state, jsmntok_t *tokens)
+static void process_return(shet_state_t *state, jsmntok_t *tokens)
 {
 	if (tokens[0].size != 4) {
 		DPRINTF("Return messages should be of length 4\n");
@@ -191,7 +191,7 @@ static void process_return(shet_state *state, jsmntok_t *tokens)
 
 
 // Process an command from the server
-static void process_command(shet_state *state, jsmntok_t *tokens, command_callback_type_t type)
+static void process_command(shet_state_t *state, jsmntok_t *tokens, command_callback_type_t type)
 {
 	size_t min_num_parts;
 	switch (type) {
@@ -271,7 +271,7 @@ static void process_command(shet_state *state, jsmntok_t *tokens, command_callba
 
 
 // Process a message from shet.
-static void process_message(shet_state *state, jsmntok_t *tokens)
+static void process_message(shet_state_t *state, jsmntok_t *tokens)
 {
 	if (!assert_type(&(tokens[0]), JSMN_ARRAY)) return;
 	if (tokens[0].size < 2) {
@@ -310,7 +310,7 @@ static void process_message(shet_state *state, jsmntok_t *tokens)
 
 // Send a command, and register a callback for the 'return' (if the deferred is
 // not NULL).
-static void send_command(shet_state *state,
+static void send_command(shet_state_t *state,
                          const char *command_name,
                          const char *path,
                          const char *args,
@@ -355,7 +355,7 @@ static void send_command(shet_state *state,
 ////////////////////////////////////////////////////////////////////////////////
 
 // Make a new state.
-void shet_state_init(shet_state *state, const char *connection_name, void (*transmit)(const char *data))
+void shet_state_init(shet_state_t *state, const char *connection_name, void (*transmit)(const char *data))
 {
 	state->next_id = 0;
 	state->callbacks = NULL;
@@ -369,7 +369,7 @@ void shet_state_init(shet_state *state, const char *connection_name, void (*tran
 
 // Set the error callback.
 // The given callback will be called on any unhandled error from shet.
-void shet_set_error_callback(shet_state *state,
+void shet_set_error_callback(shet_state_t *state,
                              callback_t callback,
                              void *callback_arg)
 {
@@ -380,7 +380,7 @@ void shet_set_error_callback(shet_state *state,
 // Given a single line (expected to be a single JSON message), handle whatever
 // it contains. The string passed need only remain valid during the call to this
 // function. Note that the string will be corrupted.
-void shet_process_line(shet_state *state, char *line, size_t line_length)
+void shet_process_line(shet_state_t *state, char *line, size_t line_length)
 {
 	if (line_length <= 0) {
 		DPRINTF("JSON string is too short!\n");
@@ -423,7 +423,7 @@ void shet_process_line(shet_state *state, char *line, size_t line_length)
 
 // Re-register all actions/properties/events/watches with the remote server.
 // This should be called after reconnection.
-void shet_reregister(shet_state *state) {
+void shet_reregister(shet_state_t *state) {
 	// Cause the server to drop all old objects from this device/application
 	send_command(state, "register", NULL, state->connection_name,
 	             NULL, NULL, NULL, NULL);
@@ -506,12 +506,12 @@ void shet_reregister(shet_state *state) {
 
 
 // Cancel a deferred
-void shet_cancel_deferred(shet_state *state, deferred_t *deferred) {
+void shet_cancel_deferred(shet_state_t *state, deferred_t *deferred) {
 	remove_deferred(state, deferred);
 }
 
 // Send a ping
-void shet_ping(shet_state *state,
+void shet_ping(shet_state_t *state,
                const char *args,
                deferred_t *deferred,
                callback_t callback,
@@ -526,7 +526,7 @@ void shet_ping(shet_state *state,
 
 
 // Isolate the string containing the return ID.
-char *shet_get_return_id(shet_state *state)
+char *shet_get_return_id(shet_state_t *state)
 {
 	// Add the appropriate prefix/postfix to the incoming ID based on the type and
 	// null terminate it. This is safe since the ID is part of an array and thus
@@ -560,7 +560,7 @@ char *shet_get_return_id(shet_state *state)
 
 
 // Return a response to the last command received
-void shet_return_with_id(shet_state *state,
+void shet_return_with_id(shet_state_t *state,
                          const char *id,
                          int success,
                          const char *value)
@@ -580,7 +580,7 @@ void shet_return_with_id(shet_state *state,
 
 
 // Return a response to the last command received
-void shet_return(shet_state *state,
+void shet_return(shet_state_t *state,
                  int success,
                  const char *value)
 {
@@ -595,7 +595,7 @@ void shet_return(shet_state *state,
 ////////////////////////////////////////////////////////////////////////////////
 
 // Create an action
-void shet_make_action(shet_state *state,
+void shet_make_action(shet_state_t *state,
                       const char *path,
                       deferred_t *action_deferred,
                       callback_t callback,
@@ -623,7 +623,7 @@ void shet_make_action(shet_state *state,
 }
 
 // Remove an action
-void shet_remove_action(shet_state *state,
+void shet_remove_action(shet_state_t *state,
                         const char *path,
                         deferred_t *deferred,
                         callback_t callback,
@@ -646,7 +646,7 @@ void shet_remove_action(shet_state *state,
 }
 
 // Call an action.
-void shet_call_action(shet_state *state,
+void shet_call_action(shet_state_t *state,
                      const char *path,
                      const char *args,
                      deferred_t *deferred,
@@ -665,7 +665,7 @@ void shet_call_action(shet_state *state,
 ////////////////////////////////////////////////////////////////////////////////
 
 // Create a property
-void shet_make_prop(shet_state *state,
+void shet_make_prop(shet_state_t *state,
                     const char *path,
                     deferred_t *prop_deferred,
                     callback_t get_callback,
@@ -695,7 +695,7 @@ void shet_make_prop(shet_state *state,
 }
 
 // Remove a property
-void shet_remove_prop(shet_state *state,
+void shet_remove_prop(shet_state_t *state,
                       const char *path,
                       deferred_t *deferred,
                       callback_t callback,
@@ -718,7 +718,7 @@ void shet_remove_prop(shet_state *state,
 }
 
 // Get a property.
-void shet_get_prop(shet_state *state,
+void shet_get_prop(shet_state_t *state,
                    const char *path,
                    deferred_t *deferred,
                    callback_t callback,
@@ -732,7 +732,7 @@ void shet_get_prop(shet_state *state,
 }
 
 // Set a property.
-void shet_set_prop(shet_state *state,
+void shet_set_prop(shet_state_t *state,
                    const char *path,
                    const char *value,
                    deferred_t *deferred,
@@ -751,7 +751,7 @@ void shet_set_prop(shet_state *state,
 ////////////////////////////////////////////////////////////////////////////////
 
 // Create an event
-void shet_make_event(shet_state *state,
+void shet_make_event(shet_state_t *state,
                      const char *path,
                      event_t *event,
                      deferred_t *mkevent_deferred,
@@ -774,7 +774,7 @@ void shet_make_event(shet_state *state,
 
 
 // Remove an event
-void shet_remove_event(shet_state *state,
+void shet_remove_event(shet_state_t *state,
                        const char *path,
                        deferred_t *deferred,
                        callback_t callback,
@@ -802,7 +802,7 @@ void shet_remove_event(shet_state *state,
 
 
 // Raise an event
-void shet_raise_event(shet_state *state,
+void shet_raise_event(shet_state_t *state,
                       const char *path,
                       const char *value,
                       deferred_t *deferred,
@@ -818,7 +818,7 @@ void shet_raise_event(shet_state *state,
 
 
 // Watch an event.
-void shet_watch_event(shet_state *state,
+void shet_watch_event(shet_state_t *state,
                       const char *path,
                       deferred_t *event_deferred,
                       callback_t event_callback,
@@ -851,7 +851,7 @@ void shet_watch_event(shet_state *state,
 
 
 // Ignore an event.
-void shet_ignore_event(shet_state *state,
+void shet_ignore_event(shet_state_t *state,
                        const char *path,
                        deferred_t *deferred,
                        callback_t callback,

@@ -29,7 +29,7 @@ extern "C" {
 
 // Predeclare the shet_state data structure.
 struct shet_state;
-typedef struct shet_state shet_state;
+typedef struct shet_state shet_state_t;
 
 // All callbacks should be of this type.
 // Arguments are:
@@ -37,7 +37,7 @@ typedef struct shet_state shet_state;
 // * A string containing (mangled) JSON sent to the callback
 // * An array of jsmn tokens breaking down the JSON
 // * A user-defined pointer chosen when the callback was defined
-typedef void (*callback_t)(shet_state *, char *, jsmntok_t *, void *);
+typedef void (*callback_t)(shet_state_t *, char *, jsmntok_t *, void *);
 
 // Define 4 types of callbacks that we store.
 typedef enum {
@@ -152,24 +152,24 @@ struct shet_state {
 // some unique JSON structure (as a string) which uniquely identifies this
 // device and application. This value must be valid for the full lifetime of the
 // SHET library. Also takes a function which can be used to transmit data.
-void shet_state_init(shet_state *state, const char *connection_name, void (*transmit)(const char *data));
+void shet_state_init(shet_state_t *state, const char *connection_name, void (*transmit)(const char *data));
 
 // Process a message from shet.
-void shet_process_line(shet_state *state, char *line, size_t line_length);
+void shet_process_line(shet_state_t *state, char *line, size_t line_length);
 
 // Set the error callback.
 // The given callback will be called on any unhandled error from shet.
-void shet_set_error_callback(shet_state *state,
+void shet_set_error_callback(shet_state_t *state,
                              callback_t callback,
                              void *callback_arg);
 
 // Un-register a given deferred. This is intended for use in timeout-like
 // scenarios or in the event of an action failing resulting a deferred being
 // redundant. It does not cause the underlying event to be unregistered.
-void shet_cancel_deferred(shet_state *state, deferred_t *deferred);
+void shet_cancel_deferred(shet_state_t *state, deferred_t *deferred);
 
 // Ping the server
-void shet_ping(shet_state *state,
+void shet_ping(shet_state_t *state,
                const char *args,
                deferred_t *deferred,
                callback_t callback,
@@ -178,7 +178,7 @@ void shet_ping(shet_state *state,
 
 // Return a response to the last command received. This should be called within
 // the callback functions registered for actions and properties.
-void shet_return(shet_state *state,
+void shet_return(shet_state_t *state,
                  int success,
                  const char *value);
 
@@ -187,7 +187,7 @@ void shet_return(shet_state *state,
 // function and thus be used for asynchronous responses. The caller is
 // responsible for storing the return ID during the original callback using
 // shet_get_return_id.
-void shet_return_with_id(shet_state *state,
+void shet_return_with_id(shet_state_t *state,
                          const char *id,
                          int success,
                          const char *value);
@@ -196,7 +196,7 @@ void shet_return_with_id(shet_state *state,
 // pointer returned is valid until the next command is processed, i.e. the
 // string is safe for the duration of a callback and should be copied if
 // required afterward.
-char *shet_get_return_id(shet_state *state);
+char *shet_get_return_id(shet_state_t *state);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Action Functions
@@ -204,7 +204,7 @@ char *shet_get_return_id(shet_state *state);
 
 // Create an action. The deferred and callbacks for calling the action is
 // mandatory, those for the mkaction are not.
-void shet_make_action(shet_state *state,
+void shet_make_action(shet_state_t *state,
                       const char *path,
                       deferred_t *action_deferred,
                       callback_t callback,
@@ -217,7 +217,7 @@ void shet_make_action(shet_state *state,
 // Remove an action. This will cancel the action deferred set up when making the
 // action but will not cancel the deferred for making the action. Callback
 // optional.
-void shet_remove_action(shet_state *state,
+void shet_remove_action(shet_state_t *state,
                         const char *path,
                         deferred_t *deferred,
                         callback_t callback,
@@ -226,7 +226,7 @@ void shet_remove_action(shet_state *state,
 
 
 // Call an action.
-void shet_call_action(shet_state *state,
+void shet_call_action(shet_state_t *state,
                      const char *path,
                      const char *args,
                      deferred_t *deferred,
@@ -240,7 +240,7 @@ void shet_call_action(shet_state *state,
 
 // Create a property. The deferred and callbacks for getting/setting the property
 // are mandatory, those for the mkprop are not.
-void shet_make_prop(shet_state *state,
+void shet_make_prop(shet_state_t *state,
                     const char *path,
                     deferred_t *prop_deferred,
                     callback_t get_callback,
@@ -254,7 +254,7 @@ void shet_make_prop(shet_state *state,
 // Remove a property. This will cancel the property deferred set up when making
 // the property but will not cancel the deferred for making the property.
 // Callback optional.
-void shet_remove_prop(shet_state *state,
+void shet_remove_prop(shet_state_t *state,
                       const char *path,
                       deferred_t *deferred,
                       callback_t callback,
@@ -262,14 +262,14 @@ void shet_remove_prop(shet_state *state,
                       void *callback_arg);
 
 // Get a property.
-void shet_get_prop(shet_state *state,
+void shet_get_prop(shet_state_t *state,
                    const char *path,
                    deferred_t *deferred,
                    callback_t callback,
                    callback_t err_callback,
                    void *callback_arg);
 // Set a property.
-void shet_set_prop(shet_state *state,
+void shet_set_prop(shet_state_t *state,
                    const char *path,
                    const char *value,
                    deferred_t *deferred,
@@ -285,7 +285,7 @@ void shet_set_prop(shet_state *state,
 // Make a new event. Must be provided with an unused "event_t" which represents
 // the registration of the event. Optionally accepts a callback for the success
 // of the creation of the event.
-void shet_make_event(shet_state *state,
+void shet_make_event(shet_state_t *state,
                      const char *path,
                      event_t *event,
                      deferred_t *mkevent_deferred,
@@ -295,7 +295,7 @@ void shet_make_event(shet_state *state,
 
 // Remove (unregister) an event. Optionally accepts a callback for the success
 // of the unregistration of the event.
-void shet_remove_event(shet_state *state,
+void shet_remove_event(shet_state_t *state,
                        const char *path,
                        deferred_t *deferred,
                        callback_t callback,
@@ -303,7 +303,7 @@ void shet_remove_event(shet_state *state,
                        void *callback_arg);
 
 // Watch an event. The watch callbacks are optional, the event ones are not!
-void shet_watch_event(shet_state *state,
+void shet_watch_event(shet_state_t *state,
                       const char *path,
                       deferred_t *event_deferred,
                       callback_t event_callback,
@@ -318,7 +318,7 @@ void shet_watch_event(shet_state *state,
 // Ignore an event which has previously been watched. This will cancel the event
 // deferred set up when watching but will not cancel the deferred for watching
 // the event. The callbacks are optional.
-void shet_ignore_event(shet_state *state,
+void shet_ignore_event(shet_state_t *state,
                        const char *path,
                        deferred_t *deferred,
                        callback_t callback,
