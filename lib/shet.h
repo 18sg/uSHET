@@ -161,6 +161,17 @@ void shet_watch_event(shet_state *state,
                       callback_t watch_error_callback,
                       void *watch_callback_arg);
 
+// Ignore an event which has previously been watched. This will cancel the event
+// deferred set up when watching but will not cancel the deferred for watching
+// the event. The callbacks are optional.
+void shet_ignore_event(shet_state *state,
+                       const char *path,
+                       void *callback_arg,
+                       deferred_t *deferred,
+                       callback_t callback,
+                       callback_t error_callback,
+                       void *callback_arg);
+
 #ifdef __cplusplus
 }
 #endif

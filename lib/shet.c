@@ -50,16 +50,6 @@ static bool assert_int(const char *line, const jsmntok_t *token)
 	return true;
 }
 
-// Assert that a deferred_t is not in use
-static bool assert_deferred_not_in_use(deferred_t *d) {
-	if (d->next != NULL) {
-		DPRINTF("deferred_t is already in use!\n");
-		return false;
-	} else {
-		return true;
-	}
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Internal deferred utility functions/macros
@@ -312,8 +302,6 @@ static void send_command_cb(shet_state *state,
                             callback_t err_callback,
                             void * callback_arg)
 {
-	if (!assert_deferred_not_in_use(deferred)) return;
-	
 	// Send the command.
 	int id = send_command(state, command_name, path, args);
 	
@@ -465,7 +453,6 @@ void shet_watch_event(shet_state *state,
                       void *watch_callback_arg)
 {
 	// Make a callback for the event.
-	if (!assert_deferred_not_in_use(event_deferred)) return;
 	event_deferred->type = EVENT_CB;
 	event_deferred->data.event_cb.event_name = path;
 	event_deferred->data.event_cb.event_callback = event_callback;
@@ -477,13 +464,32 @@ void shet_watch_event(shet_state *state,
 	add_deferred(state, event_deferred);
 	
 	// Finally, send the command (and optionally set up a callback for the return.
-	// If no callback is required, the return will simply not be matched against
-	// any callbacks producing a debug-warning but no other ill-effect.
 	if (watch_deferred != NULL) {
-		if (!assert_deferred_not_in_use(watch_deferred)) return;
 		send_command_cb(state, "watch", path, NULL,
 		                watch_deferred, watch_callback, watch_error_callback, watch_callback_arg);
 	} else {
 		send_command(state, "watch", path, NULL);
+	}
+}
+
+// Ignore an event.
+void shet_ignore_event(shet_state *state,
+                       const char *path,
+                       deferred_t *deferred,
+                       callback_t callback,
+                       callback_t error_callback,
+                       void *callback_arg)
+{
+	// Cancel the event deferred
+	deferred_t *event_deferred = find_event_cb(state, path);
+	if (event_deferred != NULL)
+		remove_deferred(state, event_deferred);
+	
+	// Finally, send the command (and optionally set up a callback for the return.
+	if (deferred != NULL) {
+		send_command_cb(state, "ignore", path, NULL,
+		                deferred, callback, error_callback, callback_arg);
+	} else {
+		send_command(state, "ignore", path, NULL);
 	}
 }
