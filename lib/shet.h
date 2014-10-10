@@ -148,7 +148,7 @@ void shet_set_prop(shet_state *state,
                    callback_t err_callback,
                    void *callback_arg);
 
-// Watch an event.
+// Watch an event. The watch callbacks are optional, the event ones are not!
 void shet_watch_event(shet_state *state,
                       const char *path,
                       deferred_t *event_deferred,
