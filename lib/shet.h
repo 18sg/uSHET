@@ -47,6 +47,9 @@ typedef enum {
 	PROP_CB,
 } deferred_type_t;
 
+// Predeclare the deferred struct
+struct deferred;
+
 // Define the types of (from) server command callbacks
 typedef enum {
 	EVENT_CCB,
@@ -65,6 +68,7 @@ typedef struct {
 } return_callback_t;
 
 typedef struct {
+	struct deferred *watch_deferred;
 	const char *event_name;
 	callback_t event_callback;
 	callback_t deleted_callback;
@@ -73,6 +77,7 @@ typedef struct {
 } event_callback_t;
 
 typedef struct {
+	struct deferred *mkprop_deferred;
 	const char *prop_name;
 	callback_t get_callback;
 	callback_t set_callback;
@@ -81,6 +86,7 @@ typedef struct {
 
 
 typedef struct {
+	struct deferred *mkaction_deferred;
 	const char *action_name;
 	callback_t callback;
 	void *user_data;
@@ -98,16 +104,27 @@ typedef struct deferred {
 	struct deferred *next;
 } deferred_t;
 
+// A list of registered events
+typedef struct event {
+	const char *event_name;
+	struct deferred *mkevent_deferred;
+	struct event *next;
+} event_t;
+
 // The global shet state.
 struct shet_state {
 	int next_id;
 	deferred_t *callbacks;
+	event_t *registered_events;
 	
 	// A buffer of tokens for JSON strings
 	jsmntok_t tokens[SHET_NUM_TOKENS];
 	
 	// Outgoing JSON buffer
 	char out_buf[SHET_BUF_SIZE];
+	
+	// Unique identifier for the connection
+	const char *connection_name;
 	
 	// Function to call to be called to transmit (null-terminated) data
 	void (*transmit)(const char *data);
@@ -121,8 +138,11 @@ struct shet_state {
 // General Library Functions
 ////////////////////////////////////////////////////////////////////////////////
 
-// Initialise the SHET state variable
-void shet_state_init(shet_state *state, void (*transmit)(const char *data));
+// Initialise the SHET state variable. Takes a connection name which should be
+// some unique JSON structure (as a string) which uniquely identifies this
+// device and application. This value must be valid for the full lifetime of the
+// SHET library. Also takes a function which can be used to transmit data.
+void shet_state_init(shet_state *state, const char *connection_name, void (*transmit)(const char *data));
 
 // Process a message from shet.
 void shet_process_line(shet_state *state, char *line, size_t line_length);
@@ -229,6 +249,26 @@ void shet_set_prop(shet_state *state,
 ////////////////////////////////////////////////////////////////////////////////
 // Event Functions
 ////////////////////////////////////////////////////////////////////////////////
+
+// Make a new event. Must be provided with an unused "event_t" which represents
+// the registration of the event. Optionally accepts a callback for the success
+// of the creation of the event.
+void shet_make_event(shet_state *state,
+                     const char *path,
+                     event_t *event,
+                     deferred_t *mkevent_deferred,
+                     callback_t mkevent_callback,
+                     callback_t mkevent_error_callback,
+                     void *mkevent_callback_arg);
+
+// Remove (unregister) an event. Optionally accepts a callback for the success
+// of the unregistration of the event.
+void shet_remove_event(shet_state *state,
+                       const char *path,
+                       deferred_t *deferred,
+                       callback_t callback,
+                       callback_t error_callback,
+                       void *callback_arg);
 
 // Watch an event. The watch callbacks are optional, the event ones are not!
 void shet_watch_event(shet_state *state,

@@ -77,15 +77,11 @@ static void add_deferred(shet_state *state, deferred_t *deferred) {
 // Given a shet state make sure that the deferred is not in the callback list,
 // removing it if it is.
 void remove_deferred(shet_state *state, deferred_t *deferred) {
-	deferred_t **deferreds = &(state->callbacks);
-	
 	// Find the deferred, if present
-	deferred_t *iter = (*deferreds);
-	for (; iter != NULL; iter = iter->next) {
-		if (iter->next == deferred) {
-			deferred_t *next = iter->next->next;
-			iter->next->next = NULL;
-			iter->next = next;
+	deferred_t **iter = &(state->callbacks);
+	for (; (*iter) != NULL; iter = &((*iter)->next)) {
+		if ((*iter) == deferred) {
+			*iter = (*iter)->next;
 			break;
 		}
 	}
@@ -343,7 +339,6 @@ static void send_command(shet_state *state,
 	        );
 	
 	// ...and send it
-	DPRINTF("%s\n", state->out_buf);
 	state->transmit(state->out_buf);
 	
 	// Register the callback (if supplied).
@@ -364,11 +359,16 @@ static void send_command(shet_state *state,
 ////////////////////////////////////////////////////////////////////////////////
 
 // Make a new state.
-void shet_state_init(shet_state *state, void (*transmit)(const char *data))
+void shet_state_init(shet_state *state, const char *connection_name, void (*transmit)(const char *data))
 {
 	state->next_id = 0;
 	state->callbacks = NULL;
+	state->connection_name = connection_name;
 	state->transmit = transmit;
+	
+	// Send the initial register command to name this connection
+	send_command(state, "register", NULL, state->connection_name,
+	             NULL, NULL, NULL, NULL);
 }
 
 // Set the error callback.
@@ -423,6 +423,89 @@ void shet_process_line(shet_state *state, char *line, size_t line_length)
 	}
 }
 
+// Re-register all actions/properties/events/watches with the remote server.
+// This should be called after reconnection.
+void shet_reregister(shet_state *state) {
+	// Cause the server to drop all old objects from this device/application
+	send_command(state, "register", NULL, state->connection_name,
+	             NULL, NULL, NULL, NULL);
+	
+	// Cancel any outstanding returns
+	deferred_t *iter;
+	for (iter = state->callbacks; iter != NULL; iter = iter->next) {
+		if (iter->type == RETURN_CB) {
+			remove_deferred(state, iter);
+			break;
+		}
+	}
+	
+	// Re-send all registration commands for watches, properties and actions
+	for (iter = state->callbacks; iter != NULL; iter = iter->next) {
+		switch(iter->type) {
+			case EVENT_CB: {
+				// Find the original watch callback deferred
+				deferred_t *watch_deferred = iter->data.event_cb.watch_deferred;
+				if (watch_deferred->type != RETURN_CB)
+					watch_deferred = NULL;
+				
+				// Re-register the watch
+				send_command(state, "watch", iter->data.event_cb.event_name, NULL,
+				             watch_deferred,
+				             watch_deferred ? watch_deferred->data.return_cb.success_callback : NULL,
+				             watch_deferred ? watch_deferred->data.return_cb.error_callback : NULL,
+				             watch_deferred ? watch_deferred->data.return_cb.user_data : NULL);
+				break;
+			}
+			
+			case ACTION_CB: {
+				// Find the original make action callback deferred
+				deferred_t *mkaction_deferred = iter->data.action_cb.mkaction_deferred;
+				if (mkaction_deferred->type != RETURN_CB)
+					mkaction_deferred = NULL;
+				
+				// Re-create the action
+				send_command(state, "mkaction", iter->data.action_cb.action_name, NULL,
+				             mkaction_deferred,
+				             mkaction_deferred ? mkaction_deferred->data.return_cb.success_callback : NULL,
+				             mkaction_deferred ? mkaction_deferred->data.return_cb.error_callback : NULL,
+				             mkaction_deferred ? mkaction_deferred->data.return_cb.user_data : NULL);
+				break;
+			}
+			
+			case PROP_CB: {
+				// Find the original make property callback deferred
+				deferred_t *mkprop_deferred = iter->data.prop_cb.mkprop_deferred;
+				if (mkprop_deferred->type != RETURN_CB)
+					mkprop_deferred = NULL;
+				
+				// Re-create the property
+				send_command(state, "mkprop", iter->data.prop_cb.prop_name, NULL,
+				             mkprop_deferred,
+				             mkprop_deferred ? mkprop_deferred->data.return_cb.success_callback : NULL,
+				             mkprop_deferred ? mkprop_deferred->data.return_cb.error_callback : NULL,
+				             mkprop_deferred ? mkprop_deferred->data.return_cb.user_data : NULL);
+				break;
+			}
+		}
+	}
+	
+	// Re-register any events
+	event_t *ev_iter;
+	for (ev_iter = state->registered_events; ev_iter != NULL; ev_iter = ev_iter->next) {
+			// Find the original make event callback deferred
+			deferred_t *mkevent_deferred = ev_iter->mkevent_deferred;
+			if (mkevent_deferred->type != RETURN_CB)
+				mkevent_deferred = NULL;
+			
+			// Re-register the event
+			send_command(state, "mkevent", ev_iter->event_name, NULL,
+			             mkevent_deferred,
+			             mkevent_deferred ? mkevent_deferred->data.return_cb.success_callback : NULL,
+			             mkevent_deferred ? mkevent_deferred->data.return_cb.error_callback : NULL,
+			             mkevent_deferred ? mkevent_deferred->data.return_cb.user_data : NULL);
+	}
+}
+
 
 // Cancel a deferred
 void shet_cancel_deferred(shet_state *state, deferred_t *deferred) {
@@ -460,6 +543,7 @@ void shet_make_action(shet_state *state,
 {
 	// Make a callback for the property.
 	action_deferred->type = ACTION_CB;
+	action_deferred->data.action_cb.mkaction_deferred = mkaction_deferred;
 	action_deferred->data.action_cb.action_name = path;
 	action_deferred->data.action_cb.callback = callback;
 	action_deferred->data.action_cb.user_data = action_arg;
@@ -482,10 +566,13 @@ void shet_remove_action(shet_state *state,
                         callback_t error_callback,
                         void *callback_arg)
 {
-	// Cancel the action deferred
+	// Cancel the action deferred and associated mkaction deferred
 	deferred_t *action_deferred = find_named_cb(state, path, ACTION_CB);
-	if (action_deferred != NULL)
+	if (action_deferred != NULL) {
 		remove_deferred(state, action_deferred);
+		if (action_deferred->data.action_cb.mkaction_deferred != NULL)
+			remove_deferred(state, action_deferred->data.action_cb.mkaction_deferred);
+	}
 	
 	// Finally, send the command
 	send_command(state, "rmaction", path, NULL,
@@ -527,6 +614,7 @@ void shet_make_prop(shet_state *state,
 {
 	// Make a callback for the property.
 	prop_deferred->type = PROP_CB;
+	prop_deferred->data.prop_cb.mkprop_deferred = mkprop_deferred;
 	prop_deferred->data.prop_cb.prop_name = path;
 	prop_deferred->data.prop_cb.get_callback = get_callback;
 	prop_deferred->data.prop_cb.set_callback = set_callback;
@@ -550,10 +638,13 @@ void shet_remove_prop(shet_state *state,
                       callback_t error_callback,
                       void *callback_arg)
 {
-	// Cancel the property deferred
+	// Cancel the property deferred (and that of the mkprop callback)
 	deferred_t *prop_deferred = find_named_cb(state, path, PROP_CB);
-	if (prop_deferred != NULL)
+	if (prop_deferred != NULL) {
 		remove_deferred(state, prop_deferred);
+		if (prop_deferred->data.prop_cb.mkprop_deferred != NULL)
+			remove_deferred(state, prop_deferred->data.prop_cb.mkprop_deferred);
+	}
 	
 	// Finally, send the command
 	send_command(state, "rmprop", path, NULL,
@@ -585,15 +676,7 @@ void shet_set_prop(shet_state *state,
                    callback_t err_callback,
                    void *callback_arg)
 {
-	// Wrap the single argument in a list.
-	int value_len = strlen(value);
-	char wrapped_value[value_len+3];
-	wrapped_value[0] = '[';
-	strcpy(wrapped_value+1, value);
-	wrapped_value[value_len+1] = ']';
-	wrapped_value[value_len+2] = '\0';
-	
-	send_command(state, "set", path, wrapped_value,
+	send_command(state, "set", path, value,
 	             deferred,
 	             callback, err_callback,
 	             callback_arg);
@@ -602,6 +685,73 @@ void shet_set_prop(shet_state *state,
 ////////////////////////////////////////////////////////////////////////////////
 // Public Functions for events
 ////////////////////////////////////////////////////////////////////////////////
+
+// Create an event
+void shet_make_event(shet_state *state,
+                     const char *path,
+                     event_t *event,
+                     deferred_t *mkevent_deferred,
+                     callback_t mkevent_callback,
+                     callback_t mkevent_error_callback,
+                     void *mkevent_callback_arg)
+{
+	// Setup the event and push it into the callback list.
+	event->event_name = path;
+	event->mkevent_deferred = mkevent_deferred;
+	event->next = state->registered_events;
+	state->registered_events = event;
+	
+	// Finally, send the command
+	send_command(state, "mkevent", path, NULL,
+	             mkevent_deferred,
+	             mkevent_callback, mkevent_error_callback,
+	             mkevent_callback_arg);
+}
+
+
+// Remove an event
+void shet_remove_event(shet_state *state,
+                       const char *path,
+                       deferred_t *deferred,
+                       callback_t callback,
+                       callback_t error_callback,
+                       void *callback_arg)
+{
+	// Remove the event from the list
+	event_t **iter = &(state->registered_events);
+	for (;*iter != NULL; iter = &((*iter)->next)) {
+		if (strcmp((*iter)->event_name, path) == 0) {
+			*iter = (*iter)->next;
+			// Also remove the mkevent deferred
+			if ((*iter)->mkevent_deferred != NULL)
+				remove_deferred(state, (*iter)->mkevent_deferred);
+			break;
+		}
+	}
+	
+	// Finally, send the command
+	send_command(state, "rmevent", path, NULL,
+	             deferred,
+	             callback, error_callback,
+	             callback_arg);
+}
+
+
+// Raise an event
+void shet_raise_event(shet_state *state,
+                      const char *path,
+                      const char *value,
+                      deferred_t *deferred,
+                      callback_t callback,
+                      callback_t err_callback,
+                      void *callback_arg)
+{
+	send_command(state, "raise", path, value,
+	             deferred,
+	             callback, err_callback,
+	             callback_arg);
+}
+
 
 // Watch an event.
 void shet_watch_event(shet_state *state,
@@ -618,6 +768,7 @@ void shet_watch_event(shet_state *state,
 {
 	// Make a callback for the event.
 	event_deferred->type = EVENT_CB;
+	event_deferred->data.event_cb.watch_deferred = watch_deferred;
 	event_deferred->data.event_cb.event_name = path;
 	event_deferred->data.event_cb.event_callback = event_callback;
 	event_deferred->data.event_cb.deleted_callback = deleted_callback;
@@ -643,10 +794,15 @@ void shet_ignore_event(shet_state *state,
                        callback_t error_callback,
                        void *callback_arg)
 {
-	// Cancel the event deferred
+	// Cancel the watch deferred and associated event deferred
 	deferred_t *event_deferred = find_named_cb(state, path, EVENT_CB);
-	if (event_deferred != NULL)
+	if (event_deferred != NULL) {
+		deferred_t *watch_deferred = event_deferred->data.event_cb.watch_deferred;
+		if (watch_deferred != NULL) {
+			remove_deferred(state, event_deferred);
+		}
 		remove_deferred(state, event_deferred);
+	}
 	
 	// Finally, send the command
 	send_command(state, "ignore", path, NULL,
