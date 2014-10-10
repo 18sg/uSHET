@@ -110,18 +110,25 @@ static deferred_t *find_return_cb(shet_state *state, int id)
 }
 
 
-// Find a callnack for the named event.
+// Find a callnack for the named event/property/action.
 // Return NULL if not found.
-static deferred_t *find_event_cb(shet_state *state, const char *name)
+static deferred_t *find_named_cb(shet_state *state, const char *name, deferred_type_t type)
 {
 	deferred_t *callback = state->callbacks;
 	for (; callback != NULL; callback = callback->next)
-		if (callback->type == EVENT_CB && 
-		    strcmp(callback->data.event_cb.event_name, name) == 0)
+		if (   ( type == EVENT_CB &&
+		         callback->type == EVENT_CB && 
+		         strcmp(callback->data.event_cb.event_name, name) == 0)
+		    || ( type == PROP_CB &&
+		         callback->type == PROP_CB && 
+		         strcmp(callback->data.prop_cb.prop_name, name) == 0)
+		    || ( type == ACTION_CB &&
+		         callback->type == ACTION_CB && 
+		         strcmp(callback->data.action_cb.action_name, name) == 0))
 			break;
 	
 	if (callback == NULL) {
-		DPRINTF("No callback for event %s\n", name);
+		DPRINTF("No callback under name %s with type %d\n", name, type);
 		return NULL;
 	}
 	
@@ -192,12 +199,28 @@ static void process_return(shet_state *state, char *line, jsmntok_t *tokens)
 }
 
 
-// Process an evant callback.
-// Ad the processing is basically the same.
-static void process_event(shet_state *state, char *line, jsmntok_t *tokens, event_callback_type_t type)
+// Process an command from the server
+static void process_command(shet_state *state, char *line, jsmntok_t *tokens, command_callback_type_t type)
 {
-	if (tokens[0].size < 3) {
-		DPRINTF("Event messages should be at least 3 parts.\n");
+	size_t min_num_parts;
+	switch (type) {
+		case EVENT_CCB:
+		case EVENT_DELETED_CCB:
+		case EVENT_CREATED_CCB:
+		case GET_PROP_CCB:
+			min_num_parts = 3;
+			break;
+		
+		case SET_PROP_CCB:
+			min_num_parts = 4;
+			break;
+		
+		default:
+			min_num_parts = -1;
+	}
+	
+	if (tokens[0].size < min_num_parts) {
+		DPRINTF("Command should be at least %d parts.\n", min_num_parts);
 		return;
 	}
 	
@@ -208,20 +231,37 @@ static void process_event(shet_state *state, char *line, jsmntok_t *tokens, even
 	line[tokens[3].end] = '\0';
 	
 	// Find the callback for this event.
-	deferred_t *callback = find_event_cb(state, name);
+	deferred_t *callback = find_named_cb(state, name, EVENT_CB);
 	if (callback == NULL)
 		return;
 	
 	// Get the callback and user data.
 	callback_t callback_fun;
 	switch (type) {
-		case EVENT_ECB:         callback_fun = callback->data.event_cb.event_callback; break;
-		case EVENT_DELETED_ECB: callback_fun = callback->data.event_cb.deleted_callback; break;
-		case EVENT_CREATED_ECB: callback_fun = callback->data.event_cb.created_callback; break;
-		default: DPRINTF("This error was put here to make the compiler STFU. "
-		                 "If you've just seen this message, then [tomn] is an idiot.\n");
+		case EVENT_CCB:         callback_fun = callback->data.event_cb.event_callback; break;
+		case EVENT_DELETED_CCB: callback_fun = callback->data.event_cb.deleted_callback; break;
+		case EVENT_CREATED_CCB: callback_fun = callback->data.event_cb.created_callback; break;
+		case GET_PROP_CCB:      callback_fun = callback->data.prop_cb.get_callback; break;
+		case SET_PROP_CCB:      callback_fun = callback->data.prop_cb.set_callback; break;
+		default:                callback_fun = NULL; break;
 	}
-	void *user_data = callback->data.event_cb.user_data;
+	void *user_data;
+	switch (type) {
+		case EVENT_CCB:
+		case EVENT_CREATED_CCB:
+		case EVENT_DELETED_CCB:
+			user_data = callback->data.event_cb.user_data;
+			break;
+		
+		case GET_PROP_CCB:
+		case SET_PROP_CCB:
+			user_data = callback->data.prop_cb.user_data;
+			break;
+		
+		default:
+			user_data = NULL;
+			break;
+	}
 	
 	// Extract the arguments. Simply truncate the command array (destroys the
 	// preceeding token).
@@ -252,11 +292,15 @@ static void process_message(shet_state *state, char *line, jsmntok_t *tokens)
 	if (strcmp(command, "return") == 0)
 		process_return(state, line, tokens);
 	else if (strcmp(command, "event") == 0)
-		process_event(state, line, tokens, EVENT_ECB);
+		process_command(state, line, tokens, EVENT_CCB);
 	else if (strcmp(command, "eventdeleted") == 0)
-		process_event(state, line, tokens, EVENT_DELETED_ECB);
+		process_command(state, line, tokens, EVENT_DELETED_CCB);
 	else if (strcmp(command, "eventcreated") == 0)
-		process_event(state, line, tokens, EVENT_CREATED_ECB);
+		process_command(state, line, tokens, EVENT_CREATED_CCB);
+	else if (strcmp(command, "getprop") == 0)
+		process_command(state, line, tokens, GET_PROP_CCB);
+	else if (strcmp(command, "setprop") == 0)
+		process_command(state, line, tokens, SET_PROP_CCB);
 	else
 		DPRINTF("unsupported command: \"%s\"\n", command);
 }
@@ -265,11 +309,16 @@ static void process_message(shet_state *state, char *line, jsmntok_t *tokens)
 // Internal message generating functions
 ////////////////////////////////////////////////////////////////////////////////
 
-// Send a command, returning the id used.
-static int send_command(shet_state *state,
-                        const char *command_name,
-                        const char *path,
-                        const char *args)
+// Send a command, and register a callback for the 'return' (if the deferred is
+// not NULL).
+static void send_command(shet_state *state,
+                         const char *command_name,
+                         const char *path,
+                         const char *args,
+                         deferred_t *deferred,
+                         callback_t callback,
+                         callback_t err_callback,
+                         void * callback_arg)
 {
 	int id = state->next_id++;
 	
@@ -289,35 +338,21 @@ static int send_command(shet_state *state,
 	DPRINTF("%s\n", state->out_buf);
 	state->transmit(state->out_buf);
 	
-	return id;
-}
-
-// Send a command, and register a callback for the 'return'.
-static void send_command_cb(shet_state *state,
-                            const char *command_name,
-                            const char *path,
-                            const char *args,
-                            deferred_t *deferred,
-                            callback_t callback,
-                            callback_t err_callback,
-                            void * callback_arg)
-{
-	// Send the command.
-	int id = send_command(state, command_name, path, args);
-	
-	// Add the callback.
-	deferred->type = RETURN_CB;
-	deferred->data.return_cb.id = id;
-	deferred->data.return_cb.success_callback = callback;
-	deferred->data.return_cb.error_callback = err_callback;
-	deferred->data.return_cb.user_data = callback_arg;
-	
-	// Push it onto the list.
-	add_deferred(state, deferred);
+	// Register the callback (if supplied).
+	if (deferred != NULL) {
+		deferred->type = RETURN_CB;
+		deferred->data.return_cb.id = id;
+		deferred->data.return_cb.success_callback = callback;
+		deferred->data.return_cb.error_callback = err_callback;
+		deferred->data.return_cb.user_data = callback_arg;
+		
+		// Push it onto the list.
+		add_deferred(state, deferred);
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Public Functions
+// General Library Functions
 ////////////////////////////////////////////////////////////////////////////////
 
 // Make a new state.
@@ -393,8 +428,15 @@ void shet_ping(shet_state *state,
                callback_t err_callback,
                void *callback_arg)
 {
-	send_command_cb(state, "ping", NULL, args, deferred, callback, err_callback, callback_arg);
+	send_command(state, "ping", NULL, args,
+	             deferred,
+	             callback, err_callback,
+	             callback_arg);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Public Functions for actions
+////////////////////////////////////////////////////////////////////////////////
 
 // Call an action.
 void shet_call_action(shet_state *state,
@@ -405,7 +447,63 @@ void shet_call_action(shet_state *state,
                      callback_t err_callback,
                      void *callback_arg)
 {
-	send_command_cb(state, "call", path, args, deferred, callback, err_callback, callback_arg);
+	send_command(state, "call", path, args,
+	             deferred,
+	             callback, err_callback,
+	             callback_arg);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public Functions for properties
+////////////////////////////////////////////////////////////////////////////////
+
+// Create a property
+void shet_make_prop(shet_state *state,
+                    const char *path,
+                    deferred_t *prop_deferred,
+                    callback_t get_callback,
+                    callback_t set_callback,
+                    void *prop_arg,
+                    deferred_t *mkprop_deferred,
+                    callback_t mkprop_callback,
+                    callback_t mkprop_error_callback,
+                    void *mkprop_callback_arg)
+{
+	// Make a callback for the property.
+	prop_deferred->type = PROP_CB;
+	prop_deferred->data.prop_cb.prop_name = path;
+	prop_deferred->data.prop_cb.get_callback = get_callback;
+	prop_deferred->data.prop_cb.set_callback = set_callback;
+	prop_deferred->data.prop_cb.user_data = prop_arg;
+	
+	// And push it onto the callback list.
+	add_deferred(state, prop_deferred);
+	
+	// Finally, send the command
+	send_command(state, "mkprop", path, NULL,
+	             mkprop_deferred,
+	             mkprop_callback, mkprop_error_callback,
+	             mkprop_callback_arg);
+}
+
+// Remove a property
+void shet_remove_prop(shet_state *state,
+                      const char *path,
+                      deferred_t *deferred,
+                      callback_t callback,
+                      callback_t error_callback,
+                      void *callback_arg)
+{
+	// Cancel the property deferred
+	deferred_t *prop_deferred = find_named_cb(state, path, PROP_CB);
+	if (prop_deferred != NULL)
+		remove_deferred(state, prop_deferred);
+	
+	// Finally, send the command
+	send_command(state, "rmprop", path, NULL,
+	             deferred,
+	             callback, error_callback,
+	             callback_arg);
 }
 
 // Get a property.
@@ -416,7 +514,10 @@ void shet_get_prop(shet_state *state,
                    callback_t err_callback,
                    void *callback_arg)
 {
-	send_command_cb(state, "get", path, NULL, deferred, callback, err_callback, callback_arg);
+	send_command(state, "get", path, NULL,
+	             deferred,
+	             callback, err_callback,
+	             callback_arg);
 }
 
 // Set a property.
@@ -436,8 +537,15 @@ void shet_set_prop(shet_state *state,
 	wrapped_value[value_len+1] = ']';
 	wrapped_value[value_len+2] = '\0';
 	
-	send_command_cb(state, "set", path, wrapped_value, deferred, callback, err_callback, callback_arg);
+	send_command(state, "set", path, wrapped_value,
+	             deferred,
+	             callback, err_callback,
+	             callback_arg);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Public Functions for events
+////////////////////////////////////////////////////////////////////////////////
 
 // Watch an event.
 void shet_watch_event(shet_state *state,
@@ -463,14 +571,13 @@ void shet_watch_event(shet_state *state,
 	// And push it onto the callback list.
 	add_deferred(state, event_deferred);
 	
-	// Finally, send the command (and optionally set up a callback for the return.
-	if (watch_deferred != NULL) {
-		send_command_cb(state, "watch", path, NULL,
-		                watch_deferred, watch_callback, watch_error_callback, watch_callback_arg);
-	} else {
-		send_command(state, "watch", path, NULL);
-	}
+	// Finally, send the command
+	send_command(state, "watch", path, NULL,
+	             watch_deferred,
+	             watch_callback, watch_error_callback,
+	             watch_callback_arg);
 }
+
 
 // Ignore an event.
 void shet_ignore_event(shet_state *state,
@@ -481,15 +588,13 @@ void shet_ignore_event(shet_state *state,
                        void *callback_arg)
 {
 	// Cancel the event deferred
-	deferred_t *event_deferred = find_event_cb(state, path);
+	deferred_t *event_deferred = find_named_cb(state, path, EVENT_CB);
 	if (event_deferred != NULL)
 		remove_deferred(state, event_deferred);
 	
-	// Finally, send the command (and optionally set up a callback for the return.
-	if (deferred != NULL) {
-		send_command_cb(state, "ignore", path, NULL,
-		                deferred, callback, error_callback, callback_arg);
-	} else {
-		send_command(state, "ignore", path, NULL);
-	}
+	// Finally, send the command
+	send_command(state, "ignore", path, NULL,
+	             deferred,
+	             callback, error_callback,
+	             callback_arg);
 }

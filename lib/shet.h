@@ -10,6 +10,10 @@
 extern "C" {
 #endif
 
+////////////////////////////////////////////////////////////////////////////////
+// Resource allocation constants
+////////////////////////////////////////////////////////////////////////////////
+
 // The number of JSON tokens to allocate for parsing a single message
 #define SHET_NUM_TOKENS 20
 
@@ -17,6 +21,11 @@ extern "C" {
 #define SHET_BUF_SIZE 100
 
 // #define DEBUG
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Types
+////////////////////////////////////////////////////////////////////////////////
 
 // Predeclare the shet_state data structure.
 struct shet_state;
@@ -34,16 +43,18 @@ typedef void (*callback_t)(shet_state *, char *, jsmntok_t *, void *);
 typedef enum {
 	RETURN_CB,
 	EVENT_CB,
-	CALL_CB,
+	ACTION_CB,
 	PROP_CB,
 } deferred_type_t;
 
-// Define the types of event callbacks
+// Define the types of (from) server command callbacks
 typedef enum {
-	EVENT_ECB,
-	EVENT_DELETED_ECB,
-	EVENT_CREATED_ECB,
-} event_callback_type_t;
+	EVENT_CCB,
+	EVENT_DELETED_CCB,
+	EVENT_CREATED_CCB,
+	GET_PROP_CCB,
+	SET_PROP_CCB,
+} command_callback_type_t;
 
 typedef struct {
 	int id;
@@ -60,12 +71,19 @@ typedef struct {
 	void *user_data;
 } event_callback_t;
 
-// Not implemented yet...
 typedef struct {
-} call_callback_t;
+	const char *prop_name;
+	callback_t get_callback;
+	callback_t set_callback;
+	void *user_data;
+} prop_callback_t;
+
 
 typedef struct {
-} prop_callback_t;
+	const char *action_name;
+	callback_t callback;
+	void *user_data;
+} action_callback_t;
 
 // A list of callbacks.
 typedef struct deferred {
@@ -73,7 +91,7 @@ typedef struct deferred {
 	union {
 		return_callback_t return_cb;
 		event_callback_t event_cb;
-		call_callback_t call_cb;
+		action_callback_t action_cb;
 		prop_callback_t prop_cb;
 	} data;
 	struct deferred *next;
@@ -97,6 +115,10 @@ struct shet_state {
 	void *error_callback_data;
 };
 
+
+////////////////////////////////////////////////////////////////////////////////
+// General Library Functions
+////////////////////////////////////////////////////////////////////////////////
 
 // Initialise the SHET state variable
 void shet_state_init(shet_state *state, void (*transmit)(const char *data));
@@ -123,6 +145,10 @@ void shet_ping(shet_state *state,
                callback_t err_callback,
                void *callback_arg);
 
+////////////////////////////////////////////////////////////////////////////////
+// Action Functions
+////////////////////////////////////////////////////////////////////////////////
+
 // Call an action.
 void shet_call_action(shet_state *state,
                      const char *path,
@@ -131,6 +157,32 @@ void shet_call_action(shet_state *state,
                      callback_t callback,
                      callback_t err_callback,
                      void *callback_arg);
+
+////////////////////////////////////////////////////////////////////////////////
+// Property Functions
+////////////////////////////////////////////////////////////////////////////////
+
+// Get a property. The deferred and callbacks for getting/setting the property
+// are mandatory, those for the mkprop are not.
+void shet_make_prop(shet_state *state,
+                    const char *path,
+                    deferred_t *prop_deferred,
+                    callback_t get_callback,
+                    callback_t set_callback,
+                    void *prop_arg,
+                    deferred_t *mkprop_deferred,
+                    callback_t mkprop_callback,
+                    callback_t mkprop_err_callback,
+                    void *mkprop_callback_arg);
+
+// Remove a property. This will cancel the event deferred set up when watching
+// but will not cancel the deferred for watching the event. Callback optional.
+void shet_remove_prop(shet_state *state,
+                      const char *path,
+                      deferred_t *deferred,
+                      callback_t callback,
+                      callback_t err_callback,
+                      void *callback_arg);
 
 // Get a property.
 void shet_get_prop(shet_state *state,
@@ -147,6 +199,11 @@ void shet_set_prop(shet_state *state,
                    callback_t callback,
                    callback_t err_callback,
                    void *callback_arg);
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Event Functions
+////////////////////////////////////////////////////////////////////////////////
 
 // Watch an event. The watch callbacks are optional, the event ones are not!
 void shet_watch_event(shet_state *state,
@@ -166,7 +223,6 @@ void shet_watch_event(shet_state *state,
 // the event. The callbacks are optional.
 void shet_ignore_event(shet_state *state,
                        const char *path,
-                       void *callback_arg,
                        deferred_t *deferred,
                        callback_t callback,
                        callback_t error_callback,
