@@ -54,6 +54,7 @@ typedef enum {
 	EVENT_CREATED_CCB,
 	GET_PROP_CCB,
 	SET_PROP_CCB,
+	CALL_CCB,
 } command_callback_type_t;
 
 typedef struct {
@@ -149,6 +150,29 @@ void shet_ping(shet_state *state,
 // Action Functions
 ////////////////////////////////////////////////////////////////////////////////
 
+// Create an action. The deferred and callbacks for calling the action is
+// mandatory, those for the mkaction are not.
+void shet_make_action(shet_state *state,
+                      const char *path,
+                      deferred_t *action_deferred,
+                      callback_t callback,
+                      void *action_arg,
+                      deferred_t *mkaction_deferred,
+                      callback_t mkaction_callback,
+                      callback_t mkaction_err_callback,
+                      void *mkaction_callback_arg);
+
+// Remove an action. This will cancel the action deferred set up when making the
+// action but will not cancel the deferred for making the action. Callback
+// optional.
+void shet_remove_action(shet_state *state,
+                        const char *path,
+                        deferred_t *deferred,
+                        callback_t callback,
+                        callback_t err_callback,
+                        void *callback_arg);
+
+
 // Call an action.
 void shet_call_action(shet_state *state,
                      const char *path,
@@ -162,7 +186,7 @@ void shet_call_action(shet_state *state,
 // Property Functions
 ////////////////////////////////////////////////////////////////////////////////
 
-// Get a property. The deferred and callbacks for getting/setting the property
+// Create a property. The deferred and callbacks for getting/setting the property
 // are mandatory, those for the mkprop are not.
 void shet_make_prop(shet_state *state,
                     const char *path,
@@ -175,8 +199,9 @@ void shet_make_prop(shet_state *state,
                     callback_t mkprop_err_callback,
                     void *mkprop_callback_arg);
 
-// Remove a property. This will cancel the event deferred set up when watching
-// but will not cancel the deferred for watching the event. Callback optional.
+// Remove a property. This will cancel the property deferred set up when making
+// the property but will not cancel the deferred for making the property.
+// Callback optional.
 void shet_remove_prop(shet_state *state,
                       const char *path,
                       deferred_t *deferred,

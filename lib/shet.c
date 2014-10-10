@@ -208,6 +208,7 @@ static void process_command(shet_state *state, char *line, jsmntok_t *tokens, co
 		case EVENT_DELETED_CCB:
 		case EVENT_CREATED_CCB:
 		case GET_PROP_CCB:
+		case CALL_CCB:
 			min_num_parts = 3;
 			break;
 		
@@ -243,6 +244,7 @@ static void process_command(shet_state *state, char *line, jsmntok_t *tokens, co
 		case EVENT_CREATED_CCB: callback_fun = callback->data.event_cb.created_callback; break;
 		case GET_PROP_CCB:      callback_fun = callback->data.prop_cb.get_callback; break;
 		case SET_PROP_CCB:      callback_fun = callback->data.prop_cb.set_callback; break;
+		case CALL_CCB:          callback_fun = callback->data.action_cb.callback; break;
 		default:                callback_fun = NULL; break;
 	}
 	void *user_data;
@@ -256,6 +258,10 @@ static void process_command(shet_state *state, char *line, jsmntok_t *tokens, co
 		case GET_PROP_CCB:
 		case SET_PROP_CCB:
 			user_data = callback->data.prop_cb.user_data;
+			break;
+		
+		case CALL_CCB:
+			user_data = callback->data.action_cb.user_data;
 			break;
 		
 		default:
@@ -301,6 +307,8 @@ static void process_message(shet_state *state, char *line, jsmntok_t *tokens)
 		process_command(state, line, tokens, GET_PROP_CCB);
 	else if (strcmp(command, "setprop") == 0)
 		process_command(state, line, tokens, SET_PROP_CCB);
+	else if (strcmp(command, "docall") == 0)
+		process_command(state, line, tokens, CALL_CCB);
 	else
 		DPRINTF("unsupported command: \"%s\"\n", command);
 }
@@ -415,6 +423,7 @@ void shet_process_line(shet_state *state, char *line, size_t line_length)
 	}
 }
 
+
 // Cancel a deferred
 void shet_cancel_deferred(shet_state *state, deferred_t *deferred) {
 	remove_deferred(state, deferred);
@@ -437,6 +446,53 @@ void shet_ping(shet_state *state,
 ////////////////////////////////////////////////////////////////////////////////
 // Public Functions for actions
 ////////////////////////////////////////////////////////////////////////////////
+
+// Create an action
+void shet_make_action(shet_state *state,
+                      const char *path,
+                      deferred_t *action_deferred,
+                      callback_t callback,
+                      void *action_arg,
+                      deferred_t *mkaction_deferred,
+                      callback_t mkaction_callback,
+                      callback_t mkaction_error_callback,
+                      void *mkaction_callback_arg)
+{
+	// Make a callback for the property.
+	action_deferred->type = ACTION_CB;
+	action_deferred->data.action_cb.action_name = path;
+	action_deferred->data.action_cb.callback = callback;
+	action_deferred->data.action_cb.user_data = action_arg;
+	
+	// And push it onto the callback list.
+	add_deferred(state, action_deferred);
+	
+	// Finally, send the command
+	send_command(state, "mkaction", path, NULL,
+	             mkaction_deferred,
+	             mkaction_callback, mkaction_error_callback,
+	             mkaction_callback_arg);
+}
+
+// Remove an action
+void shet_remove_action(shet_state *state,
+                        const char *path,
+                        deferred_t *deferred,
+                        callback_t callback,
+                        callback_t error_callback,
+                        void *callback_arg)
+{
+	// Cancel the action deferred
+	deferred_t *action_deferred = find_named_cb(state, path, ACTION_CB);
+	if (action_deferred != NULL)
+		remove_deferred(state, action_deferred);
+	
+	// Finally, send the command
+	send_command(state, "rmaction", path, NULL,
+	             deferred,
+	             callback, error_callback,
+	             callback_arg);
+}
 
 // Call an action.
 void shet_call_action(shet_state *state,
