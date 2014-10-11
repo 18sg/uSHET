@@ -335,7 +335,7 @@ static void send_command(shet_state_t *state,
 	state->out_buf[SHET_BUF_SIZE-1] = '\0';
 	
 	// ...and send it
-	state->transmit(state->out_buf);
+	state->transmit(state->out_buf, state->transmit_user_data);
 	
 	// Register the callback (if supplied).
 	if (deferred != NULL) {
@@ -355,12 +355,15 @@ static void send_command(shet_state_t *state,
 ////////////////////////////////////////////////////////////////////////////////
 
 // Make a new state.
-void shet_state_init(shet_state_t *state, const char *connection_name, void (*transmit)(const char *data))
+void shet_state_init(shet_state_t *state, const char *connection_name,
+                     void (*transmit)(const char *data, void *user_data),
+                     void *transmit_user_data)
 {
 	state->next_id = 0;
 	state->callbacks = NULL;
 	state->connection_name = connection_name;
 	state->transmit = transmit;
+	state->transmit_user_data = transmit_user_data;
 	
 	// Send the initial register command to name this connection
 	send_command(state, "register", NULL, state->connection_name,
@@ -575,7 +578,7 @@ void shet_return_with_id(shet_state_t *state,
 	state->out_buf[SHET_BUF_SIZE-1] = '\0';
 	
 	// ...and send it
-	state->transmit(state->out_buf);
+	state->transmit(state->out_buf, state->transmit_user_data);
 }
 
 

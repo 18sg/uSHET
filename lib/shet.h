@@ -137,7 +137,8 @@ struct shet_state {
 	const char *connection_name;
 	
 	// Function to call to be called to transmit (null-terminated) data
-	void (*transmit)(const char *data);
+	void (*transmit)(const char *data, void *user_data);
+	void *transmit_user_data;
 	
 	callback_t error_callback;
 	void *error_callback_data;
@@ -152,7 +153,9 @@ struct shet_state {
 // some unique JSON structure (as a string) which uniquely identifies this
 // device and application. This value must be valid for the full lifetime of the
 // SHET library. Also takes a function which can be used to transmit data.
-void shet_state_init(shet_state_t *state, const char *connection_name, void (*transmit)(const char *data));
+void shet_state_init(shet_state_t *state, const char *connection_name,
+                     void (*transmit)(const char *data, void *user_data),
+                     void *transmit_user_data);
 
 // Process a message from shet.
 void shet_process_line(shet_state_t *state, char *line, size_t line_length);
