@@ -165,9 +165,10 @@ static void process_return(shet_state_t *state, jsmntok_t *tokens)
 	// main loop.
 	
 	// Select either the success or fail callback (or fall-back on the 
-	callback_t callback_fun;
-	void *user_data = callback->data.return_cb.user_data;
+	callback_t callback_fun = state->error_callback;
+	void *user_data = state->error_callback_data;
 	if (callback != NULL) {
+		user_data = callback->data.return_cb.user_data;
 		if (success == 0)
 			callback_fun = callback->data.return_cb.success_callback;
 		else if (success != 0) {
@@ -179,9 +180,6 @@ static void process_return(shet_state_t *state, jsmntok_t *tokens)
 			}
 		}
 		remove_deferred(state, callback);
-	} else {
-		callback_fun = state->error_callback;
-		user_data    = state->error_callback_data;
 	}
 	
 	// Run the callback if it's not null.
@@ -364,6 +362,8 @@ void shet_state_init(shet_state_t *state, const char *connection_name,
 	state->connection_name = connection_name;
 	state->transmit = transmit;
 	state->transmit_user_data = transmit_user_data;
+	state->error_callback = NULL;
+	state->error_callback_data = NULL;
 	
 	// Send the initial register command to name this connection
 	send_command(state, "register", NULL, state->connection_name,

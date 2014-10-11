@@ -15,49 +15,46 @@
 // JSON test utilities
 ////////////////////////////////////////////////////////////////////////////////
 
-// Given two JSON strings, compare them and return the token which points to the
+// Given two JSON strings and their tokens return the token which points to the
 // first differing componenst in each via differing_{a,b}. Returns a bool which
 // is true if the JSON is the same and false if not. If differing_{a,b} are
 // NULL, they will not be set.
-bool cmp_json(const char *json_a, const char *json_b,
-              jsmntok_t *differing_a, jsmntok_t *differing_b) {
-	const size_t num_tokens = 100;
-	
-	jsmn_parser pa;
-	jsmn_parser pb;
-	jsmn_init(&pa);
-	jsmn_init(&pb);
-	jsmntok_t tokens_a[num_tokens];
-	jsmntok_t tokens_b[num_tokens];
-	
-	// Attempt to tokenise the strings
-	jsmnerr_t ea = jsmn_parse(&pa , json_a , strlen(json_a),
-	                          tokens_a , num_tokens);
-	jsmnerr_t eb = jsmn_parse(&pb , json_b , strlen(json_b),
-	                          tokens_b , num_tokens);
-	
-	// Make sure the string tokenzied successfully
-	if (ea < 0 || eb < 0)
+bool cmp_json_tokens(const char *json_a, const char *json_b,
+                     jsmntok_t **tokens_a, jsmntok_t **tokens_b,
+                     jsmntok_t *differing_a, jsmntok_t *differing_b) {
+	// Sanity check the basic object
+	if ((**tokens_a).type != (**tokens_b).type ||
+	    (**tokens_a).size != (**tokens_b).size) {
+		*differing_a = **tokens_a;
+		*differing_b = **tokens_b;
 		return false;
-	
-	for (int i = 0; i < ea && i < eb; i++) {
-		if (tokens_a[i].type != tokens_b[i].type ||
-		    tokens_a[i].size != tokens_b[i].size ||
-		    ((tokens_a[i].type == JSMN_PRIMITIVE ||
-		      tokens_a[i].type == JSMN_STRING) &&
-		     strncmp(json_a+tokens_a[i].start,
-		             json_b+tokens_b[i].start,
-		             tokens_a[i].end - tokens_a[i].start))) {
-			if (differing_a != NULL) *differing_a = tokens_a[i];
-			if (differing_b != NULL) *differing_b = tokens_b[i];
+	} else if ((*tokens_a)->type == JSMN_PRIMITIVE ||
+	           (*tokens_a)->type == JSMN_STRING) {
+		// Compare atomic objects
+		if (strncmp(json_a+(*tokens_a)->start,
+		            json_b+(*tokens_b)->start,
+		            (*tokens_a)->end - (*tokens_a)->start) != 0) {
+			if (differing_a != NULL) *differing_a = **tokens_a;
+			if (differing_b != NULL) *differing_b = **tokens_b;
 			return false;
+		} else {
+			(*tokens_a)++;
+			(*tokens_b)++;
+			return true;
 		}
+	} else {
+		// Iterate over compound objects
+		int size = (**tokens_a).size;
+		(*tokens_a)++;
+		(*tokens_b)++;
+		for (int i = 0; i < size; i++)
+			if (!cmp_json_tokens(json_a, json_b,
+			                     tokens_a, tokens_b,
+			                     differing_a, differing_b))
+				return false;
+		return true;
 	}
-	
-	// Finally, a sanity check...
-	return ea == eb;
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Test suite assertions
@@ -70,37 +67,79 @@ bool cmp_json(const char *json_a, const char *json_b,
 	return false; \
 } } while (0)
 
-// Standard "assert true" assertion
-#define TASSERT_JSON_EQUAL(a,b) do { \
-	const char *sa = (a); \
-	const char *sb = (b); \
-	jsmntok_t ta; \
-	ta.start = 0; \
-	jsmntok_t tb; \
-	tb.start = 0; \
-	if (!cmp_json(sa,sb,&ta,&tb)) { \
-		fprintf(stderr, "TASSERT_JSON_EQUAL Failed: %s:%s:%d:\n",\
+// Assert equal integers
+#define TASSERT_INT_EQUAL(a,b) do { if ((a) != (b)) { \
+	fprintf(stderr, "TASSERT Failed: %s:%s:%d: "#a" (%d) == "#b" (%d)\n",\
+	        __FILE__,__func__,__LINE__, (a), (b));\
+	return false; \
+} } while (0)
+
+// Compare two JSON strings given as a set of tokens and assert that they are
+// equivilent
+#define TASSERT_JSON_EQUAL_TOK_TOK(sa,ta,sb,tb) do { \
+	TASSERT((sa) != NULL);\
+	TASSERT((ta) != NULL);\
+	TASSERT((sb) != NULL);\
+	TASSERT((tb) != NULL);\
+	const char *a = (sa); /* JSON String a */ \
+	const char *b = (sb); /* JSON String b */ \
+	jsmntok_t *ca = (ta); /* Cur token a */ \
+	jsmntok_t *cb = (tb); /* Cur token b */ \
+	jsmntok_t da; /* Differing token a */ \
+	da.start = 0; \
+	jsmntok_t db; /* Differing token b */ \
+	db.start = 0; \
+	if (!cmp_json_tokens(a,b,&ca,&cb,&da,&db)) { \
+		fprintf(stderr, "TASSERT_JSON_EQUAL_TOK_TOK Failed: %s:%s:%d:\n",\
 		        __FILE__,__func__,__LINE__);\
-		fprintf(stderr, " > \"%s\"\n", sa);\
-		fprintf(stderr, " >  ", sa);\
-		if (ta.start == tb.start) { \
-			for (int i = 0; i < ta.start; i++) fprintf(stderr, " "); \
+		fprintf(stderr, " > \"%.*s\"\n", (ta)->end-(ta)->start, a+(ta)->start);\
+		fprintf(stderr, " >  ", a);\
+		if (da.start == db.start) { \
+			for (int i = 0; i < da.start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "|\n"); \
-		} else if (ta.start < tb.start) { \
-			for (int i = 0; i < ta.start; i++) fprintf(stderr, " "); \
+		} else if (da.start < db.start) { \
+			for (int i = 0; i < da.start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "^"); \
-			for (int i = ta.start; i < tb.start-1; i++) fprintf(stderr, "-"); \
+			for (int i = da.start; i < db.start-1; i++) fprintf(stderr, "-"); \
 			fprintf(stderr, "v\n"); \
 		} else { \
-			for (int i = 0; i < tb.start; i++) fprintf(stderr, " "); \
+			for (int i = 0; i < db.start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "v"); \
-			for (int i = tb.start; i < ta.start-1; i++) fprintf(stderr, "-"); \
+			for (int i = db.start; i < da.start-1; i++) fprintf(stderr, "-"); \
 			fprintf(stderr, "^\n"); \
 		} \
-		fprintf(stderr, " > \"%s\"\n", sb);\
+		fprintf(stderr, " > \"%.*s\"\n", (tb)->end-(tb)->start, b+(tb)->start);\
 		return false; \
 	} \
 } while (0)
+
+
+// Compare two JSON strings the first given as a string and token and the other
+// as a string and assert that they are equivilent.
+#define TASSERT_JSON_EQUAL_TOK_STR(sa,ta,sb) do { \
+	jsmn_parser p; \
+	jsmn_init(&p); \
+	jsmntok_t tb[100]; \
+	jsmnerr_t e = jsmn_parse(&p, sb, strlen(sb), \
+	                         tb, 100); \
+	TASSERT(e >= 0); \
+	TASSERT_JSON_EQUAL_TOK_TOK(sa, ta, sb, tb);\
+} while (0)
+
+
+// Compare two JSON strings the first given as a string and token and the other
+// as a string and assert that they are equivilent.
+#define TASSERT_JSON_EQUAL_STR_STR(sa,sb) do { \
+	jsmn_parser p; \
+	jsmn_init(&p); \
+	jsmntok_t ta[100]; \
+	jsmnerr_t e = jsmn_parse(&p, sa, strlen(sa), \
+	                         ta, 100); \
+	TASSERT(e >= 0); \
+	TASSERT_JSON_EQUAL_TOK_STR(sa, ta, sb);\
+} while (0)
+
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -125,6 +164,25 @@ static void transmit_cb(const char *data, void *user_data) {
 	transmit_count = 0; \
 } while (0)
 
+
+// A generic callback which simply places the callback arguments into a
+// callback_result_t structure pointed to by the user variable.
+typedef struct {
+	shet_state_t *state;
+	char *line;
+	jsmntok_t *token;
+	int count;
+} callback_result_t;
+
+static void callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
+	callback_result_t *result = (callback_result_t *)user_data;
+	if (result != NULL) {
+		result->state = state;
+		result->line = line;
+		result->token = token;
+		result->count++;
+	}
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -344,19 +402,45 @@ bool test_deferred_utilities(void) {
 
 
 bool test_shet_state_init(void) {
-	const char *conn_name = "tester";
-	
-	shet_state_t state;
 	RESET_TRANSMIT_CB();
-	shet_state_init(&state, conn_name, transmit_cb, (void *)test_shet_state_init);
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, (void *)test_shet_state_init);
 	
-	// Make sure a registration command is sent
+	// Make sure a registration command is sent and that the transmit callback
+	// gets the right data
 	TASSERT(transmit_count == 1);
 	TASSERT(transmit_last_user_data == (void *)test_shet_state_init);
-	TASSERT(transmit_last_data != NULL);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0, \"register\", \"tester\"]");
 	
 	return true;
 }
+
+
+
+bool test_shet_set_error_callback(void) {
+	RESET_TRANSMIT_CB();
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	
+	// Make sure nothing happens when an unknown return arrives without an error
+	// callback setup
+	char line1[] = "[0,\"return\",0,[1,2,3]]";
+	shet_process_line(&state, line1, strlen(line1));
+	
+	// Set up the error callback
+	callback_result_t result;
+	result.count = 0;
+	shet_set_error_callback(&state, callback, &result);
+	
+	// Make sure the error came through
+	char line2[] = "[1,\"return\",0,[1,2,3]]";
+	shet_process_line(&state, line2, strlen(line2));
+	TASSERT_INT_EQUAL(result.count, 1);
+	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3]");
+	
+	return true;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -368,6 +452,7 @@ int main(int argc, char *argv[]) {
 		test_assert_int,
 		test_deferred_utilities,
 		test_shet_state_init,
+		test_shet_set_error_callback,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
