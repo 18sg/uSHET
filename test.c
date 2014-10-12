@@ -228,6 +228,60 @@ bool test_assert_int(void) {
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// Test internal message generation functions
+////////////////////////////////////////////////////////////////////////////////
+
+bool test_send_command(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test sending with just a command
+	send_command(&state, "test1", NULL, NULL,
+	             NULL, NULL, NULL, NULL);
+	TASSERT(transmit_count == 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1, \"test1\"]");
+	
+	// Test that paths get quoted
+	send_command(&state, "test2", "/test", NULL,
+	             NULL, NULL, NULL, NULL);
+	TASSERT(transmit_count == 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2, \"test2\", \"/test\"]");
+	
+	// Test that arguments don't get quoted
+	send_command(&state, "test3", "/test", "[1,2,3], 4",
+	             NULL, NULL, NULL, NULL);
+	TASSERT(transmit_count == 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3, \"test3\", \"/test\", [1,2,3],4]");
+	
+	// And test that path-less commands still support arguments
+	send_command(&state, "test4", NULL, "5, [6,7,8]",
+	             NULL, NULL, NULL, NULL);
+	TASSERT(transmit_count == 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4, \"test4\", 5,[6,7,8]]");
+	
+	// Make sure no deferreds were created
+	TASSERT(state.callbacks == NULL);
+	
+	// Make sure they are when required!
+	deferred_t test_deferred;
+	callback_result_t result;
+	result.count = 0;
+	send_command(&state, "test5", NULL, NULL,
+	             &test_deferred, callback, NULL, &result);
+	TASSERT(transmit_count == 6);
+	TASSERT(result.count == 0);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5, \"test5\"]");
+	char response[] = "[5, \"return\", 0, [1,2,3,4]]";
+	shet_process_line(&state, response, strlen(response));
+	TASSERT(result.count == 1);
+	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3,4]");
+	
+	return true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 // Test deferred utility functions
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -453,6 +507,7 @@ int main(int argc, char *argv[]) {
 		test_deferred_utilities,
 		test_shet_state_init,
 		test_shet_set_error_callback,
+		test_send_command,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
