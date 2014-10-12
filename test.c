@@ -517,7 +517,7 @@ bool test_shet_register(void) {
 	                     TYPE_ACTION,TYPE_ACTION,
 	                     TYPE_PROPERTY,TYPE_PROPERTY,
 	                     TYPE_WATCH,TYPE_WATCH};
-	// Number of times the above paths have been registered
+	// Number of times the above paths have been registered (or unregistered)
 	int reg_counts[] = {0,0,0,0,0,0,0,0};
 	// Number of times the above paths have been registered with the wrong command
 	int wrong_reg_counts[] = {0,0,0,0,0,0,0,0};
@@ -575,7 +575,11 @@ bool test_shet_register(void) {
 					if ((strncmp("mkevent", str, len) == 0  && types[i] == TYPE_EVENT) ||
 					    (strncmp("mkprop", str, len) == 0   && types[i] == TYPE_PROPERTY) ||
 					    (strncmp("mkaction", str, len) == 0 && types[i] == TYPE_ACTION) ||
-					    (strncmp("watch", str, len) == 0    && types[i] == TYPE_WATCH))
+					    (strncmp("watch", str, len) == 0    && types[i] == TYPE_WATCH) ||
+					    (strncmp("rmevent", str, len) == 0  && types[i] == TYPE_EVENT) ||
+					    (strncmp("rmprop", str, len) == 0   && types[i] == TYPE_PROPERTY) ||
+					    (strncmp("rmaction", str, len) == 0 && types[i] == TYPE_ACTION) ||
+					    (strncmp("ignore", str, len) == 0   && types[i] == TYPE_WATCH))
 						reg_counts[i]++;
 					else {
 						wrong_reg_counts[i]++;
@@ -683,6 +687,50 @@ bool test_shet_register(void) {
 	for (int i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(cb_counts[i], 2);
 	}
+	
+	// Remove everything and make sture everything returns to normal
+	for (int i = 0; i < num; i++) {
+		switch (types[i]) {
+			case TYPE_EVENT:
+				shet_remove_event(&state, paths[i],
+				                  NULL, NULL, NULL, NULL);
+				break;
+			case TYPE_ACTION:
+				shet_remove_action(&state, paths[i],
+				                   NULL, NULL, NULL, NULL);
+				break;
+			case TYPE_PROPERTY:
+				shet_remove_prop(&state, paths[i],
+				                 NULL, NULL, NULL, NULL);
+				break;
+			case TYPE_WATCH:
+				shet_ignore_event(&state, paths[i],
+				                  NULL, NULL, NULL, NULL);
+				break;
+			default:
+				TASSERT(false);
+				break;
+		}
+	}
+	TASSERT_INT_EQUAL(register_count, 3);
+	for (int i = 0; i < num; i++) {
+		TASSERT_INT_EQUAL(reg_counts[i], 3);
+		TASSERT_INT_EQUAL(cb_counts[i], 2);
+		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
+	}
+	TASSERT_INT_EQUAL(bad_path_count, 0);
+	TASSERT_INT_EQUAL(bad_tx_count, 0);
+	
+	// Test re-registering doesn't re-introduce anything
+	shet_reregister(&state);
+	TASSERT_INT_EQUAL(register_count, 4);
+	for (int i = 0; i < num; i++) {
+		TASSERT_INT_EQUAL(reg_counts[i], 3);
+		TASSERT_INT_EQUAL(cb_counts[i], 2);
+		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
+	}
+	TASSERT_INT_EQUAL(bad_path_count, 0);
+	TASSERT_INT_EQUAL(bad_tx_count, 0);
 }
 
 
