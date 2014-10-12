@@ -359,6 +359,7 @@ void shet_state_init(shet_state_t *state, const char *connection_name,
 {
 	state->next_id = 0;
 	state->callbacks = NULL;
+	state->registered_events = NULL;
 	state->connection_name = connection_name;
 	state->transmit = transmit;
 	state->transmit_user_data = transmit_user_data;
