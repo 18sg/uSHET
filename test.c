@@ -495,6 +495,196 @@ bool test_shet_set_error_callback(void) {
 	return true;
 }
 
+#define TYPE_EVENT 1
+#define TYPE_ACTION 2
+#define TYPE_PROPERTY 3
+#define TYPE_WATCH 4
+
+bool test_shet_register(void) {
+	// Paths of the things which will be registered
+	const char *paths[] = {
+		"/event/e1",
+		"/event/e2",
+		"/action/a1",
+		"/action/a2",
+		"/property/p1",
+		"/property/p2",
+		"/watch/w1",
+		"/watch/w2",
+	};
+	// Types of the above paths
+	const int types[] = {TYPE_EVENT,TYPE_EVENT,
+	                     TYPE_ACTION,TYPE_ACTION,
+	                     TYPE_PROPERTY,TYPE_PROPERTY,
+	                     TYPE_WATCH,TYPE_WATCH};
+	// Number of times the above paths have been registered
+	int reg_counts[] = {0,0,0,0,0,0,0,0};
+	// Number of times the above paths have been registered with the wrong command
+	int wrong_reg_counts[] = {0,0,0,0,0,0,0,0};
+	// Return IDs for the most recent reg command for the above paths
+	int reg_return_ids[] = {0,0,0,0,0,0,0,0};
+	// Number of times the above paths' registration callbacks have been called
+	int cb_counts[] = {0,0,0,0,0,0,0,0};
+	// Number of paths
+	const int num = sizeof(paths)/sizeof(const char *);
+	
+	// Deferreds for the "make" parts of the element
+	deferred_t make_deferreds[num];
+	// Deferreds for the live part of the element (e.g. event, call, set, get).
+	deferred_t deferreds[num];
+	// Event objects for any events
+	event_t events[num];
+	
+	// Number of "register" commands received
+	int register_count = 0;
+	
+	// Unexpected commands received to transmit
+	int bad_tx_count = 0;
+	
+	// Unknown paths requested
+	int bad_path_count = 0;
+	
+	// Transmit callback. Simply returns the number of registrations which have
+	// occurred. Note: this function assumes only register and
+	// event/action/property/watch calls.
+	void transmit(const char *data, void *user_data) {
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmntok_t tokens[100];
+		jsmnerr_t e = jsmn_parse(&p, data, strlen(data),
+	                           tokens, 100);
+		
+		// Die if something strange is passed rather than crashing reading funny
+		// memory locations...
+		if (e < 3 || e > 4 || tokens[0].type != JSMN_ARRAY) {
+			bad_tx_count++;
+			return;
+		}
+		
+		// Is this a register?
+		if (strncmp("register", data + tokens[2].start, tokens[2].end - tokens[2].start) == 0) {
+			register_count++;
+		} else {
+			// Check through the paths for a match
+			int i;
+			for (i = 0; i < num; i++) {
+				if (strncmp(paths[i], data + tokens[3].start, tokens[3].end - tokens[3].start) == 0) {
+					// Check that creationg commands are correct
+					const char *str = data + tokens[2].start;
+					size_t len = tokens[2].end - tokens[2].start;
+					if ((strncmp("mkevent", str, len) == 0  && types[i] == TYPE_EVENT) ||
+					    (strncmp("mkprop", str, len) == 0   && types[i] == TYPE_PROPERTY) ||
+					    (strncmp("mkaction", str, len) == 0 && types[i] == TYPE_ACTION) ||
+					    (strncmp("watch", str, len) == 0    && types[i] == TYPE_WATCH))
+						reg_counts[i]++;
+					else {
+						wrong_reg_counts[i]++;
+					}
+					
+					reg_return_ids[i] = atoi(data + tokens[1].start);
+					break;
+				}
+			}
+			
+			if (i == num)
+				bad_path_count++;
+		}
+	}
+	
+	// Callback for "make" functions and the like
+	void make(shet_state_t *state, char *data, jsmntok_t *token, void *user_data) {
+		size_t i = (const char **)user_data - paths;
+		cb_counts[i]++;
+	}
+	
+	shet_state_t state;
+	shet_state_init(&state, NULL, transmit, NULL);
+	TASSERT_INT_EQUAL(register_count, 1);
+	for (int i = 0; i < num; i++) {
+		TASSERT_INT_EQUAL(reg_counts[i], 0);
+		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
+	}
+	TASSERT_INT_EQUAL(bad_path_count, 0);
+	TASSERT_INT_EQUAL(bad_tx_count, 0);
+	
+	// Test that re-registering an empty system does no damage
+	shet_reregister(&state);
+	TASSERT_INT_EQUAL(register_count, 2);
+	for (int i = 0; i < num; i++) {
+		TASSERT_INT_EQUAL(reg_counts[i], 0);
+		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
+	}
+	TASSERT_INT_EQUAL(bad_path_count, 0);
+	TASSERT_INT_EQUAL(bad_tx_count, 0);
+	
+	// Test registering all the test paths
+	for (int i = 0; i < num; i++) {
+		switch (types[i]) {
+			case TYPE_EVENT:
+				shet_make_event(&state, paths[i], &(events[i]),
+				                &(make_deferreds[i]), make, NULL, &(paths[i]));
+				break;
+			case TYPE_ACTION:
+				shet_make_action(&state, paths[i],
+				                 &(deferreds[i]), NULL, NULL,
+				                 &(make_deferreds[i]), make, NULL, &(paths[i]));
+				break;
+			case TYPE_PROPERTY:
+				shet_make_prop(&state, paths[i],
+				               &(deferreds[i]), NULL, NULL, NULL,
+				               &(make_deferreds[i]), make, NULL, &(paths[i]));
+				break;
+			case TYPE_WATCH:
+				shet_watch_event(&state, paths[i],
+				                 &(deferreds[i]), NULL, NULL, NULL, NULL,
+				                 &(make_deferreds[i]), make, NULL, &(paths[i]));
+				break;
+			default:
+				TASSERT(false);
+				break;
+		}
+	}
+	TASSERT_INT_EQUAL(register_count, 2);
+	for (int i = 0; i < num; i++) {
+		TASSERT_INT_EQUAL(reg_counts[i], 1);
+		TASSERT_INT_EQUAL(cb_counts[i], 0);
+		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
+	}
+	TASSERT_INT_EQUAL(bad_path_count, 0);
+	TASSERT_INT_EQUAL(bad_tx_count, 0);
+	
+	// Send callbacks
+	for (int i = 0; i < num; i++) {
+		char msg[100];
+		sprintf(msg, "[%d,\"return\",0,null]", reg_return_ids[i]);
+		shet_process_line(&state, msg, strlen(msg));
+	}
+	for (int i = 0; i < num; i++) {
+		TASSERT_INT_EQUAL(cb_counts[i], 1);
+	}
+	
+	// Test re-registering makes everything come back
+	shet_reregister(&state);
+	TASSERT_INT_EQUAL(register_count, 3);
+	for (int i = 0; i < num; i++) {
+		TASSERT_INT_EQUAL(reg_counts[i], 2);
+		TASSERT_INT_EQUAL(cb_counts[i], 1);
+		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
+	}
+	TASSERT_INT_EQUAL(bad_path_count, 0);
+	TASSERT_INT_EQUAL(bad_tx_count, 0);
+	
+	// And that all the callbacks work again
+	for (int i = 0; i < num; i++) {
+		char msg[100];
+		sprintf(msg, "[%d,\"return\",0,null]", reg_return_ids[i]);
+		shet_process_line(&state, msg, strlen(msg));
+	}
+	for (int i = 0; i < num; i++) {
+		TASSERT_INT_EQUAL(cb_counts[i], 2);
+	}
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -508,6 +698,7 @@ int main(int argc, char *argv[]) {
 		test_shet_state_init,
 		test_shet_set_error_callback,
 		test_send_command,
+		test_shet_register,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
