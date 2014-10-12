@@ -789,10 +789,10 @@ void shet_remove_event(shet_state_t *state,
 	event_t **iter = &(state->registered_events);
 	for (;*iter != NULL; iter = &((*iter)->next)) {
 		if (strcmp((*iter)->event_name, path) == 0) {
-			*iter = (*iter)->next;
 			// Also remove the mkevent deferred
 			if ((*iter)->mkevent_deferred != NULL)
 				remove_deferred(state, (*iter)->mkevent_deferred);
+			*iter = (*iter)->next;
 			break;
 		}
 	}
