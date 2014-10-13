@@ -181,6 +181,8 @@ static void callback(shet_state_t *state, char *line, jsmntok_t *token, void *us
 		result->line = line;
 		result->token = token;
 		result->count++;
+	} else {
+		fprintf(stderr, "TEST ERROR: callback didn't receive result pointer!\n");
 	}
 }
 
@@ -734,6 +736,44 @@ bool test_shet_register(void) {
 }
 
 
+bool test_shet_cancel_deferred_and_shet_ping(void) {
+	RESET_TRANSMIT_CB();
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+
+	// Send a ping event
+	deferred_t deferred;
+	callback_result_t result;
+	result.count = 0;
+	shet_ping(&state, "[1,2,3,{1:2,3:4}]",
+	          &deferred, callback, NULL, &result);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"ping\",[1,2,3,{1:2,3:4}]]");
+	
+	// Send response
+	char response1[] = "[1,\"return\",0,[1,2,3,{1:2,3:4}]]";
+	shet_process_line(&state, response1, strlen(response1));
+	TASSERT_INT_EQUAL(result.count, 1);
+	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3,{1:2,3:4}]");
+	
+	// Send a second ping
+	shet_ping(&state, "[3,2,1]",
+	          &deferred, callback, NULL, &result);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"ping\",[3,2,1]]");
+	
+	// Cancel the response
+	shet_cancel_deferred(&state, &deferred);
+	
+	// Check that the response now doesn't trigger a callback
+	char response2[] = "[2,\"return\",0,[3,2,1]]";
+	shet_process_line(&state, response2, strlen(response1));
+	TASSERT_INT_EQUAL(result.count, 1);
+	
+	return true;
+}
+
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // World starts here
@@ -747,6 +787,7 @@ int main(int argc, char *argv[]) {
 		test_shet_set_error_callback,
 		test_send_command,
 		test_shet_register,
+		test_shet_cancel_deferred_and_shet_ping,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
