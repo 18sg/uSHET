@@ -743,7 +743,7 @@ bool test_shet_cancel_deferred_and_shet_ping(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
-
+	
 	// Send a ping event
 	deferred_t deferred;
 	callback_result_t result;
@@ -770,8 +770,79 @@ bool test_shet_cancel_deferred_and_shet_ping(void) {
 	
 	// Check that the response now doesn't trigger a callback
 	char response2[] = "[2,\"return\",0,[3,2,1]]";
-	shet_process_line(&state, response2, strlen(response1));
+	shet_process_line(&state, response2, strlen(response2));
 	TASSERT_INT_EQUAL(result.count, 1);
+	
+	return true;
+}
+
+
+bool test_return(void) {
+	RESET_TRANSMIT_CB();
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	
+	// A function which immediately returns nothing
+	void return_null(shet_state_t *state, char *line, jsmntok_t *tokens, void *user_data) {
+		shet_return(state, 0, NULL);
+	}
+	
+	// A function which immediately returns a value
+	void return_value(shet_state_t *state, char *line, jsmntok_t *tokens, void *user_data) {
+		shet_return(state, 0, "[1,2,3]");
+	}
+	
+	// A function which doesn't respond but simply copies down the ID
+	char return_id[100];
+	void return_later(shet_state_t *state, char *line, jsmntok_t *tokens, void *user_data) {
+		strcpy(return_id, shet_get_return_id(state));
+	}
+	
+	deferred_t deferred;
+	
+	// Test an action which returns nothing (also tests objects as IDs)
+	shet_make_action(&state, "/test/action",
+	                 &deferred, return_null, NULL,
+	                 NULL, NULL, NULL, NULL);
+	char line1[] = "[{\"whacky\":\"id\"}, \"docall\", \"/test/action\", null]";
+	shet_process_line(&state, line1, strlen(line1));
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[{\"whacky\":\"id\"}, \"return\", 0, null]");
+	shet_remove_action(&state, "/test/action", NULL, NULL, NULL, NULL);
+	
+	// Test an action which returns some value (also tests arrays as IDs)
+	shet_make_action(&state, "/test/action",
+	                 &deferred, return_value, NULL,
+	                 NULL, NULL, NULL, NULL);
+	char line2[] = "[[\"volume\",11], \"docall\", \"/test/action\", null]";
+	shet_process_line(&state, line2, strlen(line2));
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[[\"volume\":11], \"return\", 0, [1,2,3]]");
+	shet_remove_action(&state, "/test/action", NULL, NULL, NULL, NULL);
+	
+	// Test an action which doesn't return immediately (also tests strings as IDs)
+	shet_make_action(&state, "/test/action",
+	                 &deferred, return_later, NULL,
+	                 NULL, NULL, NULL, NULL);
+	char line3[] = "[\"eye-dee\", \"docall\", \"/test/action\", null]";
+	shet_process_line(&state, line3, strlen(line3));
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	
+	// Attempt to return using the stored ID
+	shet_return_with_id(&state, return_id, 0, "\"woah\"");
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"eye-dee\", \"return\", 0, \"woah\"]");
+	shet_remove_action(&state, "/test/action", NULL, NULL, NULL, NULL);
+	
+	// Finally test primitives as IDs
+	shet_make_action(&state, "/test/action",
+	                 &deferred, return_null, NULL,
+	                 NULL, NULL, NULL, NULL);
+	char line4[] = "[null, \"docall\", \"/test/action\", null]";
+	shet_process_line(&state, line4, strlen(line4));
+	TASSERT_INT_EQUAL(transmit_count, 12);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[null, \"return\", 0, null]");
+	shet_remove_action(&state, "/test/action", NULL, NULL, NULL, NULL);
 	
 	return true;
 }
@@ -791,6 +862,7 @@ int main(int argc, char *argv[]) {
 		test_send_command,
 		test_shet_register,
 		test_shet_cancel_deferred_and_shet_ping,
+		test_return,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
