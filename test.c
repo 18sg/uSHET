@@ -307,7 +307,7 @@ bool test_send_command(void) {
 	TASSERT(state.callbacks == NULL);
 	
 	// Make sure they are when required!
-	deferred_t test_deferred;
+	shet_deferred_t test_deferred;
 	callback_result_t result;
 	result.count = 0;
 	send_command(&state, "test5", NULL, NULL,
@@ -349,7 +349,7 @@ bool test_deferred_utilities(void) {
 	TASSERT(state.callbacks == NULL);
 	
 	// Add a return
-	deferred_t d1;
+	shet_deferred_t d1;
 	d1.type = RETURN_CB;
 	d1.data.return_cb.id = 0;
 	add_deferred(&state, &d1);
@@ -393,7 +393,7 @@ bool test_deferred_utilities(void) {
 	TASSERT(find_return_cb(&state, 0) == NULL);
 	
 	// Add more than one item
-	deferred_t d2;
+	shet_deferred_t d2;
 	d2.type = RETURN_CB;
 	d2.data.return_cb.id = 1;
 	add_deferred(&state, &d2);
@@ -572,11 +572,11 @@ bool test_shet_register(void) {
 	const int num = sizeof(paths)/sizeof(const char *);
 	
 	// Deferreds for the "make" parts of the element
-	deferred_t make_deferreds[num];
+	shet_deferred_t make_deferreds[num];
 	// Deferreds for the live part of the element (e.g. event, call, set, get).
-	deferred_t deferreds[num];
+	shet_deferred_t deferreds[num];
 	// Event objects for any events
-	event_t events[num];
+	shet_event_t events[num];
 	
 	// Number of "register" commands received
 	int register_count = 0;
@@ -783,7 +783,7 @@ bool test_shet_cancel_deferred_and_shet_ping(void) {
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
 	// Send a ping event
-	deferred_t deferred;
+	shet_deferred_t deferred;
 	callback_result_t result;
 	result.count = 0;
 	shet_ping(&state, "[1,2,3,{1:2,3:4}]",
@@ -836,7 +836,7 @@ bool test_return(void) {
 		strcpy(return_id, shet_get_return_id(state));
 	}
 	
-	deferred_t deferred;
+	shet_deferred_t deferred;
 	
 	// Test an action which returns nothing (also tests objects as IDs)
 	shet_make_action(&state, "/test/action",
@@ -896,8 +896,8 @@ bool test_shet_make_action(void) {
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
-	deferred_t deferred1;
-	deferred_t deferred2;
+	shet_deferred_t deferred1;
+	shet_deferred_t deferred2;
 	callback_result_t result1;
 	callback_result_t result2;
 	result1.count = 0;
@@ -984,7 +984,7 @@ bool test_shet_call_action(void) {
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
 	// Test a call with no argument
-	deferred_t deferred;
+	shet_deferred_t deferred;
 	callback_result_t result;
 	result.count = 0;
 	shet_call_action(&state, "/test/action", NULL,
@@ -1032,8 +1032,8 @@ bool test_shet_make_prop(void) {
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
-	deferred_t deferred1;
-	deferred_t deferred2;
+	shet_deferred_t deferred1;
+	shet_deferred_t deferred2;
 	callback_result_t result1;
 	callback_result_t result2;
 	result1.count = 0;
@@ -1119,7 +1119,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
-	deferred_t deferred;
+	shet_deferred_t deferred;
 	callback_result_t result;
 	result.count = 0;
 	
@@ -1170,8 +1170,8 @@ bool test_shet_make_event(void) {
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
-	deferred_t deferred;
-	event_t event;
+	shet_deferred_t deferred;
+	shet_event_t event;
 	callback_result_t result;
 	result.count = 0;
 	
@@ -1209,8 +1209,8 @@ bool test_shet_watch_event(void) {
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
-	deferred_t deferred1;
-	deferred_t deferred2;
+	shet_deferred_t deferred1;
+	shet_deferred_t deferred2;
 	callback_result_t result1;
 	callback_result_t result2;
 	result1.count = 0;
