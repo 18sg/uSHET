@@ -1165,6 +1165,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 // Test events
 ////////////////////////////////////////////////////////////////////////////////
 
+
 bool test_shet_watch_event(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
@@ -1219,6 +1220,29 @@ bool test_shet_watch_event(void) {
 	shet_process_line(&state, line4, strlen(line4));
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 1);
+	
+	// Test that we can receive eventcreated
+	shet_watch_event(&state, "/test/event3",
+	                 &deferred2, NULL, callback, NULL, &result2,
+	                 NULL, NULL, NULL, NULL);
+	
+	char line5[] = "[5,\"eventcreated\",\"/test/event3\"]";
+	shet_process_line(&state, line5, strlen(line5));
+	TASSERT_INT_EQUAL(result1.count, 2);
+	TASSERT_INT_EQUAL(result2.count, 2);
+	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
+	
+	// And that we can receive eventdeleted
+	shet_ignore_event(&state, "/test/event3", NULL, NULL, NULL, NULL);
+	shet_watch_event(&state, "/test/event4",
+	                 &deferred2, NULL, NULL, callback, &result2,
+	                 NULL, NULL, NULL, NULL);
+	
+	char line6[] = "[6,\"eventdeleted\",\"/test/event4\"]";
+	shet_process_line(&state, line6, strlen(line6));
+	TASSERT_INT_EQUAL(result1.count, 2);
+	TASSERT_INT_EQUAL(result2.count, 3);
+	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
 	
 	return true;
 }
