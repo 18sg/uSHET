@@ -859,8 +859,8 @@ void shet_watch_event(shet_state_t *state,
                       const char *path,
                       deferred_t *event_deferred,
                       callback_t event_callback,
-                      callback_t deleted_callback,
                       callback_t created_callback,
+                      callback_t deleted_callback,
                       void *callback_arg,
                       deferred_t *watch_deferred,
                       callback_t watch_callback,
@@ -872,8 +872,8 @@ void shet_watch_event(shet_state_t *state,
 	event_deferred->data.event_cb.watch_deferred = watch_deferred;
 	event_deferred->data.event_cb.event_name = path;
 	event_deferred->data.event_cb.event_callback = event_callback;
-	event_deferred->data.event_cb.deleted_callback = deleted_callback;
 	event_deferred->data.event_cb.created_callback = created_callback;
+	event_deferred->data.event_cb.deleted_callback = deleted_callback;
 	event_deferred->data.event_cb.user_data = callback_arg;
 	
 	// And push it onto the callback list.
