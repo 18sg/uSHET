@@ -309,6 +309,17 @@ void shet_remove_event(shet_state_t *state,
                        callback_t error_callback,
                        void *callback_arg);
 
+// Raise the specified event. Optionally accepts a callback for the success of
+// the raise command. The value should be either NULL or a comma-seperated
+// string of JSON elements.
+void shet_raise_event(shet_state_t *state,
+                      const char *path,
+                      const char *value,
+                      deferred_t *deferred,
+                      callback_t callback,
+                      callback_t error_callback,
+                      void *callback_arg);
+
 // Watch an event. The watch callbacks are optional, the event ones are not!
 void shet_watch_event(shet_state_t *state,
                       const char *path,
