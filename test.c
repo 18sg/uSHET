@@ -1,5 +1,6 @@
 /**
- * A simple test suite for uSHET.
+ * A test suite for uSHET. Only tests functionality of underlying protocol
+ * implementation. Does not test any wrappers.
  */
 
 #include <stdio.h>
@@ -439,9 +440,11 @@ bool test_deferred_utilities(void) {
 	
 	// Test that we can find event callbacks
 	d1.type = EVENT_CB;
+	d1.data.event_cb.watch_deferred = NULL;
 	d1.data.event_cb.event_name = "/event/d1";
 	add_deferred(&state, &d1);
 	d2.type = EVENT_CB;
+	d2.data.event_cb.watch_deferred = NULL;
 	d2.data.event_cb.event_name = "/event/d2";
 	add_deferred(&state, &d2);
 	
@@ -458,8 +461,10 @@ bool test_deferred_utilities(void) {
 	remove_deferred(&state, &d1);
 	remove_deferred(&state, &d2);
 	d1.type = ACTION_CB;
+	d1.data.action_cb.mkaction_deferred = NULL;
 	d1.data.action_cb.action_name = "/action/d1";
 	d2.type = ACTION_CB;
+	d2.data.action_cb.mkaction_deferred = NULL;
 	d2.data.action_cb.action_name = "/action/d2";
 	add_deferred(&state, &d1);
 	add_deferred(&state, &d2);
@@ -475,8 +480,10 @@ bool test_deferred_utilities(void) {
 	remove_deferred(&state, &d1);
 	remove_deferred(&state, &d2);
 	d1.type = PROP_CB;
+	d1.data.prop_cb.mkprop_deferred = NULL;
 	d1.data.prop_cb.prop_name = "/prop/d1";
 	d2.type = PROP_CB;
+	d2.data.prop_cb.mkprop_deferred = NULL;
 	d2.data.prop_cb.prop_name = "/prop/d2";
 	add_deferred(&state, &d1);
 	add_deferred(&state, &d2);
