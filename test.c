@@ -1060,6 +1060,13 @@ bool test_shet_make_action(void) {
 	TASSERT_INT_EQUAL(transmit_count, 11);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"return\",0,[1,2,3]]");
 	
+	// Call an imaginary action
+	char line8[] = "[7,\"docall\",\"/test/imaginary\", 1,2,3]";
+	TASSERT(shet_process_line(&state, line8, strlen(line8)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(result1.count, 5);
+	TASSERT_INT_EQUAL(transmit_count, 12);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[7,\"return\",1,\"No callback handler registered!\"]");
+	
 	return true;
 }
 
