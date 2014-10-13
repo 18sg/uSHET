@@ -1165,6 +1165,44 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 // Test events
 ////////////////////////////////////////////////////////////////////////////////
 
+bool test_shet_make_event(void) {
+	RESET_TRANSMIT_CB();
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	
+	deferred_t deferred;
+	event_t event;
+	callback_result_t result;
+	result.count = 0;
+	
+	// Make sure events can be created
+	shet_make_event(&state, "/test/event", &event, NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkevent\",\"/test/event\"]");
+	
+	// Make sure we can raise the event without an argument
+	shet_raise_event(&state, "/test/event", NULL, NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"raise\",\"/test/event\"]");
+	
+	// Make sure we can raise the event with a single argument
+	shet_raise_event(&state, "/test/event", "123", NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"raise\",\"/test/event\", 123]");
+	
+	// Make sure we can raise the event with a many argumenten
+	shet_raise_event(&state, "/test/event", "1,2,3", NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"raise\",\"/test/event\", 1,2,3]");
+	
+	// Make sure events can be deleted
+	shet_remove_event(&state, "/test/event", NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"rmevent\",\"/test/event\"]");
+	
+	return true;
+}
+
 
 bool test_shet_watch_event(void) {
 	RESET_TRANSMIT_CB();
@@ -1265,6 +1303,7 @@ int main(int argc, char *argv[]) {
 		test_shet_call_action,
 		test_shet_make_prop,
 		test_shet_set_prop_and_shet_get_prop,
+		test_shet_make_event,
 		test_shet_watch_event,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
