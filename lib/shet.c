@@ -540,39 +540,6 @@ void shet_reregister(shet_state_t *state) {
 
 
 void shet_cancel_deferred(shet_state_t *state, shet_deferred_t *deferred) {
-	// Remove any reference to it for registration
-	shet_deferred_t *iter = state->callbacks;
-	for (; iter != NULL; iter = iter->next) {
-		switch (iter->type) {
-			case EVENT_CB:
-				if (iter->data.event_cb.watch_deferred == deferred)
-					iter->data.event_cb.watch_deferred = NULL;
-				break;
-			
-			case PROP_CB:
-				if (iter->data.prop_cb.mkprop_deferred == deferred)
-					iter->data.prop_cb.mkprop_deferred = NULL;
-				break;
-			
-			case ACTION_CB:
-				if (iter->data.action_cb.mkaction_deferred == deferred)
-					iter->data.action_cb.mkaction_deferred = NULL;
-				break;
-			
-			case RETURN_CB:
-			default:
-				// Nothing to do for returns.
-				break;
-		}
-	}
-	
-	// Also, disassociate it with any events
-	shet_event_t *ev_iter;
-	for (ev_iter = state->registered_events; ev_iter != NULL; ev_iter = ev_iter->next)
-		if (ev_iter->mkevent_deferred == deferred)
-			ev_iter->mkevent_deferred = NULL;
-	
-	// Finally, remove the deferred itself from the callbacks list if present
 	remove_deferred(state, deferred);
 }
 
