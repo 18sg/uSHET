@@ -20,7 +20,7 @@ extern "C" {
 // Number of characters in the buffer used to hold outgoing SHET messages
 #define SHET_BUF_SIZE 100
 
-// #define DEBUG
+// #define SHET_DEBUG
 
 
 ////////////////////////////////////////////////////////////////////////////////

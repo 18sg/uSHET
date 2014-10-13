@@ -7,7 +7,7 @@
 
 #include "jsmn.h"
 
-#ifdef DEBUG
+#ifdef SHET_DEBUG
 #define DPRINTF(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define DPRINTF(...)
