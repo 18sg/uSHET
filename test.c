@@ -1111,6 +1111,52 @@ bool test_shet_make_prop(void) {
 }
 
 
+bool test_shet_set_prop_and_shet_get_prop(void) {
+	RESET_TRANSMIT_CB();
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	
+	deferred_t deferred;
+	callback_result_t result;
+	result.count = 0;
+	
+	// Test get
+	shet_get_prop(&state, "/test/get",
+	              &deferred, callback, NULL, &result);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"get\",\"/test/get\"]");
+	
+	// Test the return
+	char line1[] = "[1,\"return\",0,[1,2,3]]";
+	shet_process_line(&state, line1, strlen(line1));
+	TASSERT_INT_EQUAL(result.count, 1);
+	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "[1,2,3]");
+	
+	// Test set
+	shet_set_prop(&state, "/test/set", "[3,2,1]",
+	              &deferred, callback, NULL, &result);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"set\",\"/test/set\", [3,2,1]]");
+	
+	// Test the return
+	char line2[] = "[2,\"return\",0,null]";
+	shet_process_line(&state, line2, strlen(line2));
+	TASSERT_INT_EQUAL(result.count, 2);
+	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "null");
+	
+	// Test that error conditions work
+	shet_set_prop(&state, "/test/set", "[9,9,9]",
+	              &deferred, NULL, callback, &result);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"set\",\"/test/set\", [9,9,9]]");
+	char line3[] = "[3,\"return\",1,\"fail\"]";
+	shet_process_line(&state, line3, strlen(line3));
+	TASSERT_INT_EQUAL(result.count, 3);
+	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "\"fail\"");
+	
+	return true;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // World starts here
 ////////////////////////////////////////////////////////////////////////////////
@@ -1128,6 +1174,7 @@ int main(int argc, char *argv[]) {
 		test_shet_make_action,
 		test_shet_call_action,
 		test_shet_make_prop,
+		test_shet_set_prop_and_shet_get_prop,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
