@@ -279,14 +279,33 @@ static void process_command(shet_state_t *state, jsmntok_t *tokens, command_call
 			break;
 	}
 	
-	// Extract the arguments. Simply truncate the command array (destroys the
-	// preceeding token).
-	jsmntok_t *arg_token = &(tokens[4 + tokens[1].size]);
-	*arg_token = tokens[0];
-	arg_token->size -= 2;
+	
+	// Find the first argument (if one is present)
+	jsmntok_t *first_arg_token = &(tokens[4 + tokens[1].size]);
+	
+	// Truncate the array (remove the ID, command and path)
+	jsmntok_t *args_token = first_arg_token - 1;
+	*args_token = tokens[0];
+	args_token->size = tokens[0].size - 3;
+	if (args_token->size > 0) {
+		// If the array string now starts with a string, move the start to just
+		// before the opening quotes, otherwise move to just before the indicated
+		// start of the first element.
+		if (first_arg_token->type == JSMN_STRING)
+			args_token->start = first_arg_token->start - 2;
+		else
+			args_token->start = first_arg_token->start - 1;
+	} else {
+		// If the new array is empty, the array's first character is just before the
+		// closing bracket.
+		args_token->start = args_token->end - 2;
+	}
+	// Add the opening bracket. Note that this *may* corrupt the path argument but
+	// since it won't be used again, this isn't a problem.
+	state->line[args_token->start] = '[';
 	
 	if (callback_fun != NULL)
-		callback_fun(state, state->line, arg_token, user_data);
+		callback_fun(state, state->line, args_token, user_data);
 }
 
 
