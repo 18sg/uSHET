@@ -183,6 +183,7 @@ typedef struct {
 	char *line;
 	jsmntok_t *token;
 	int count;
+	const char *return_value;
 } callback_result_t;
 
 static void callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
@@ -198,21 +199,32 @@ static void callback(shet_state_t *state, char *line, jsmntok_t *token, void *us
 }
 
 
-// A callback which returns its argument
+// A callback like the above but which returns its argument
 static void echo_callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
-	callback_result_t *result = (callback_result_t *)user_data;
-	if (result != NULL) {
-		result->state = state;
-		result->line = line;
-		result->token = token;
-		result->count++;
-	}
+	callback(state, line, token, user_data);
 	
 	// Return back the argument
 	char response[100];
 	strncpy(response, line + token[0].start, token[0].end - token[0].start);
 	response[token[0].end - token[0].start] = '\0';
 	shet_return(state, 0, response);
+}
+
+
+// A callback like the above but which returns success and returns a null value
+static void success_callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
+	callback(state, line, token, user_data);
+	
+	shet_return(state, 0, "null");
+}
+
+
+// A callback like the above but which returns success and the value in
+// the return_value field of callback_result_t.
+static void const_callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
+	callback(state, line, token, user_data);
+	
+	shet_return(state, 0, ((callback_result_t *)user_data)->return_value);
 }
 
 
@@ -895,15 +907,20 @@ bool test_shet_make_action(void) {
 	shet_make_action(&state, "/test/action1",
 	                 &deferred1, echo_callback, &result1,
 	                 NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkaction\",\"/test/action1\"]");
 	shet_make_action(&state, "/test/action2",
 	                 &deferred2, echo_callback, &result2,
 	                 NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"mkaction\",\"/test/action2\"]");
 	
 	// Call each action with a null argument to ensure both can act independently
 	// and that null arguments work
 	char line1[] = "[0,\"docall\",\"/test/action1\"]";
 	shet_process_line(&state, line1, strlen(line1));
 	TASSERT_INT_EQUAL(result1.count, 1);
+	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
 	TASSERT_INT_EQUAL(result2.count, 0);
 	TASSERT_INT_EQUAL(transmit_count, 4);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[]]");
@@ -912,6 +929,7 @@ bool test_shet_make_action(void) {
 	shet_process_line(&state, line2, strlen(line2));
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
+	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
 	TASSERT_INT_EQUAL(transmit_count, 5);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,[]]");
 	
@@ -927,6 +945,7 @@ bool test_shet_make_action(void) {
 	char line4[] = "[3,\"docall\",\"/test/action1\", \"just me\"]";
 	shet_process_line(&state, line4, strlen(line4));
 	TASSERT_INT_EQUAL(result1.count, 2);
+	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[\"just me\"]");
 	TASSERT_INT_EQUAL(transmit_count, 7);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"return\",0,[\"just me\"]]");
 	
@@ -934,6 +953,7 @@ bool test_shet_make_action(void) {
 	char line5[] = "[4,\"docall\",\"/test/action1\", true]";
 	shet_process_line(&state, line5, strlen(line5));
 	TASSERT_INT_EQUAL(result1.count, 3);
+	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[true]");
 	TASSERT_INT_EQUAL(transmit_count, 8);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"return\",0,[true]]");
 	
@@ -941,6 +961,7 @@ bool test_shet_make_action(void) {
 	char line6[] = "[5,\"docall\",\"/test/action1\", [1,2,3]]";
 	shet_process_line(&state, line6, strlen(line6));
 	TASSERT_INT_EQUAL(result1.count, 4);
+	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[[1,2,3]]");
 	TASSERT_INT_EQUAL(transmit_count, 9);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"return\",0,[[1,2,3]]]");
 	
@@ -948,6 +969,7 @@ bool test_shet_make_action(void) {
 	char line7[] = "[6,\"docall\",\"/test/action1\", 1,2,3]";
 	shet_process_line(&state, line7, strlen(line7));
 	TASSERT_INT_EQUAL(result1.count, 5);
+	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[1,2,3]");
 	TASSERT_INT_EQUAL(transmit_count, 10);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"return\",0,[1,2,3]]");
 	
@@ -1001,6 +1023,95 @@ bool test_shet_call_action(void) {
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// Test properties
+////////////////////////////////////////////////////////////////////////////////
+
+bool test_shet_make_prop(void) {
+	RESET_TRANSMIT_CB();
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	
+	deferred_t deferred1;
+	deferred_t deferred2;
+	callback_result_t result1;
+	callback_result_t result2;
+	result1.count = 0;
+	result2.count = 0;
+	char response1[] = "[1,2,3]";
+	char response2[] = "[3,2,1]";
+	result1.return_value = response1;
+	result2.return_value = response2;
+	
+	// Make two properties
+	shet_make_prop(&state, "/test/prop1",
+	               &deferred1, const_callback, success_callback, &result1,
+	               NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkprop\",\"/test/prop1\"]");
+	shet_make_prop(&state, "/test/prop2",
+	               &deferred2, const_callback, success_callback, &result2,
+	               NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"mkprop\",\"/test/prop2\"]");
+	
+	// Make sure they can be set independently
+	char line1[] = "[0,\"setprop\",\"/test/prop1\",123]";
+	shet_process_line(&state, line1, strlen(line1));
+	TASSERT_INT_EQUAL(result1.count, 1);
+	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[123]");
+	TASSERT_INT_EQUAL(result2.count, 0);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,null]");
+	
+	char line2[] = "[1,\"setprop\",\"/test/prop2\",321]";
+	shet_process_line(&state, line2, strlen(line2));
+	TASSERT_INT_EQUAL(result1.count, 1);
+	TASSERT_INT_EQUAL(result2.count, 1);
+	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[321]");
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
+	
+	// Make sure they can be got independently
+	char line3[] = "[0,\"getprop\",\"/test/prop1\"]";
+	shet_process_line(&state, line3, strlen(line3));
+	TASSERT_INT_EQUAL(result1.count, 2);
+	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
+	TASSERT_INT_EQUAL(result2.count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[1,2,3]]");
+	
+	char line4[] = "[1,\"getprop\",\"/test/prop2\"]";
+	shet_process_line(&state, line4, strlen(line4));
+	TASSERT_INT_EQUAL(result1.count, 2);
+	TASSERT_INT_EQUAL(result2.count, 2);
+	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,[3,2,1]]");
+	
+	// Make sure properties can be removed independently
+	shet_remove_prop(&state, "/test/prop2", NULL, NULL, NULL, NULL);
+	
+	// Prop 1 should remain
+	char line5[] = "[0,\"getprop\",\"/test/prop1\"]";
+	shet_process_line(&state, line5, strlen(line5));
+	TASSERT_INT_EQUAL(result1.count, 3);
+	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
+	TASSERT_INT_EQUAL(result2.count, 2);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[1,2,3]]");
+	
+	// Prop 2 should nolonger exist
+	char line6[] = "[1,\"getprop\",\"/test/prop2\"]";
+	shet_process_line(&state, line6, strlen(line6));
+	TASSERT_INT_EQUAL(result1.count, 3);
+	TASSERT_INT_EQUAL(result2.count, 2);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	
+	return true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 // World starts here
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -1016,6 +1127,7 @@ int main(int argc, char *argv[]) {
 		test_return,
 		test_shet_make_action,
 		test_shet_call_action,
+		test_shet_make_prop,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
