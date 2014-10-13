@@ -412,8 +412,7 @@ void shet_state_init(shet_state_t *state, const char *connection_name,
 	state->error_callback_data = NULL;
 	
 	// Send the initial register command to name this connection
-	send_command(state, "register", NULL, state->connection_name,
-	             NULL, NULL, NULL, NULL);
+	shet_reregister(state);
 }
 
 // Set the error callback.

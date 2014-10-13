@@ -157,6 +157,10 @@ void shet_state_init(shet_state_t *state, const char *connection_name,
                      void (*transmit)(const char *data, void *user_data),
                      void *transmit_user_data);
 
+// Re-register the connection with the server, cancelling all previous
+// registered objects and re-creating previously registered objects.
+void shet_reregister(shet_state_t *state);
+
 // Process a message from shet.
 void shet_process_line(shet_state_t *state, char *line, size_t line_length);
 
