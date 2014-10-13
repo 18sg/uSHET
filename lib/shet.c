@@ -216,12 +216,33 @@ static void process_command(shet_state_t *state, jsmntok_t *tokens, command_call
 	
 	// Get the name. It is safe to clobber the char after the name since it will
 	// be a pair of quotes as part of the JSON syntax.
-	if (!assert_type(&(tokens[3]), JSMN_STRING)) return;
-	const char *name = state->line + tokens[3].start;
-	state->line[tokens[3].end] = '\0';
+	jsmntok_t *name_token = &(tokens[3 + tokens[1].size]);
+	if (!assert_type(name_token, JSMN_STRING)) return;
+	const char *name = state->line + name_token->start;
+	state->line[name_token->end] = '\0';
 	
 	// Find the callback for this event.
-	deferred_t *callback = find_named_cb(state, name, type);
+	deferred_t *callback;
+	switch (type) {
+		case EVENT_CCB:
+		case EVENT_DELETED_CCB:
+		case EVENT_CREATED_CCB:
+			callback = find_named_cb(state, name, EVENT_CB);
+			break;
+		
+		case GET_PROP_CCB:
+		case SET_PROP_CCB:
+			callback = find_named_cb(state, name, PROP_CB);
+			break;
+		
+		case CALL_CCB:
+			callback = find_named_cb(state, name, ACTION_CB);
+			break;
+		
+		default:
+			callback = NULL;
+			break;
+	}
 	if (callback == NULL)
 		return;
 	
@@ -260,11 +281,12 @@ static void process_command(shet_state_t *state, jsmntok_t *tokens, command_call
 	
 	// Extract the arguments. Simply truncate the command array (destroys the
 	// preceeding token).
-	tokens[3] = tokens[0];
-	tokens[3].size -= 2;
+	jsmntok_t *arg_token = &(tokens[4 + tokens[1].size]);
+	*arg_token = tokens[0];
+	arg_token->size -= 2;
 	
 	if (callback_fun != NULL)
-		callback_fun(state, state->line, &(tokens[3]), user_data);
+		callback_fun(state, state->line, arg_token, user_data);
 }
 
 
@@ -277,11 +299,15 @@ static void process_message(shet_state_t *state, jsmntok_t *tokens)
 		return;
 	}
 	
+	// Record the ID token
+	state->recv_id = &(tokens[1]);
+	
 	// Note that the command is at least followed by the closing bracket and if
 	// not a comma and so nulling out the character following it is safe.
-	if (!assert_type(&(tokens[2]), JSMN_STRING)) return;
-	const char *command = state->line + tokens[2].start;
-	state->line[tokens[2].end] = '\0';
+	jsmntok_t *command_token = &(tokens[2 + tokens[1].size]);
+	if (!assert_type(command_token, JSMN_STRING)) return;
+	const char *command = state->line + command_token->start;
+	state->line[command_token->end] = '\0';
 	
 	// Extract args in indiviaual handling functions -- too much effort to do here.
 	if (strcmp(command, "return") == 0)
@@ -404,15 +430,18 @@ void shet_process_line(shet_state_t *state, char *line, size_t line_length)
 	                        );
 	switch (e) {
 		case JSMN_ERROR_NOMEM:
-			DPRINTF("Out of JSON tokens in shet_process_line.\n");
+			DPRINTF("Out of JSON tokens in shet_process_line: %.*s\n",
+			        line_length, state->line);
 			break;
 		
 		case JSMN_ERROR_INVAL:
-			DPRINTF("Invalid char in JSON string in shet_process_line.\n");
+			DPRINTF("Invalid char in JSON string in shet_process_line: %.*s\n",
+			        line_length, state->line);
 			break;
 		
 		case JSMN_ERROR_PART:
-			DPRINTF("Incomplete JSON string in shet_process_line.\n");
+			DPRINTF("Incomplete JSON string in shet_process_line: %.*s.\n",
+			        line_length, state->line);
 			break;
 		
 		default:
@@ -532,33 +561,19 @@ void shet_ping(shet_state_t *state,
 // Isolate the string containing the return ID.
 char *shet_get_return_id(shet_state_t *state)
 {
-	// Add the appropriate prefix/postfix to the incoming ID based on the type and
-	// null terminate it. This is safe since the ID is part of an array and thus
-	// there is at least one trailing character which can be clobbered (the comma)
-	// with the null.
-	switch (state->recv_id->type) {
-		case JSMN_STRING:
-			state->line[state->recv_id->start - 1] = '\"';
-			state->line[state->recv_id->end]       = '\"';
-			state->line[state->recv_id->end + 1]   = '\0';
-			return state->line + state->recv_id->start - 1;
-		
-		case JSMN_ARRAY:
-			state->line[state->recv_id->start - 1] = '[';
-			state->line[state->recv_id->end]       = ']';
-			state->line[state->recv_id->end + 1]   = '\0';
-			return state->line + state->recv_id->start - 1;
-		
-		case JSMN_OBJECT:
-			state->line[state->recv_id->start - 1] = '{';
-			state->line[state->recv_id->end]       = '}';
-			state->line[state->recv_id->end + 1]   = '\0';
-			return state->line + state->recv_id->start - 1;
-		
-		default:
-		case JSMN_PRIMITIVE:
-			state->line[state->recv_id->end] = '\0';
-			return state->line + state->recv_id->start;
+	// Null terminate the ID. This is safe since the ID is part of an array and
+	// thus there is at least one trailing character which can be clobbered (the
+	// comma) with the null. Also, note that string start/ends must be extended to
+	// include quotes. Other types start & end already include their surrounding
+	// brackets etc.
+	if (state->recv_id->type == JSMN_STRING) {
+		state->line[--(state->recv_id->start)] = '\"';
+		state->line[state->recv_id->end++] = '\"';
+		state->line[state->recv_id->end] = '\0';
+		return state->line + state->recv_id->start;
+	} else {
+		state->line[state->recv_id->end] = '\0';
+		return state->line + state->recv_id->start;
 	}
 }
 
@@ -574,7 +589,7 @@ void shet_return_with_id(shet_state_t *state,
 	        , "[%s,\"return\",%d,%s]\n"
 	        , id
 	        , success
-	        , value ? value : "[]"
+	        , value ? value : "null"
 	        );
 	state->out_buf[SHET_BUF_SIZE-1] = '\0';
 	
