@@ -879,7 +879,7 @@ bool test_return(void) {
 ////////////////////////////////////////////////////////////////////////////////
 
 
-bool test_make_action(void) {
+bool test_shet_make_action(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
@@ -955,6 +955,51 @@ bool test_make_action(void) {
 }
 
 
+bool test_shet_call_action(void) {
+	RESET_TRANSMIT_CB();
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	
+	// Test a call with no argument
+	deferred_t deferred;
+	callback_result_t result;
+	result.count = 0;
+	shet_call_action(&state, "/test/action", NULL,
+	                 &deferred, callback, NULL, &result);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"call\",\"/test/action\"]");
+	
+	// Test the return
+	char line1[] = "[1,\"return\",0,null]";
+	shet_process_line(&state, line1, strlen(line1));
+	TASSERT_INT_EQUAL(result.count, 1);
+	
+	// Test a call with an argument
+	shet_call_action(&state, "/test/action", "\"magic\"",
+	                 &deferred, callback, NULL, &result);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"call\",\"/test/action\", \"magic\"]");
+	
+	// Test the return
+	char line2[] = "[2,\"return\",0,null]";
+	shet_process_line(&state, line2, strlen(line2));
+	TASSERT_INT_EQUAL(result.count, 2);
+	
+	// Test a call with a failed response
+	shet_call_action(&state, "/test/action", NULL,
+	                 &deferred, NULL, callback, &result);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"call\",\"/test/action\"]");
+	
+	// Test the return with an error
+	char line3[] = "[3,\"return\",1,\"fail\"]";
+	shet_process_line(&state, line3, strlen(line3));
+	TASSERT_INT_EQUAL(result.count, 3);
+	
+	return true;
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 // World starts here
 ////////////////////////////////////////////////////////////////////////////////
@@ -969,7 +1014,8 @@ int main(int argc, char *argv[]) {
 		test_shet_register,
 		test_shet_cancel_deferred_and_shet_ping,
 		test_return,
-		test_make_action,
+		test_shet_make_action,
+		test_shet_call_action,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
