@@ -90,26 +90,26 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	jsmntok_t *ca = (ta); /* Cur token pointer a */ \
 	jsmntok_t *cb = (tb); /* Cur token pointer b */ \
 	jsmntok_t da; /* Differing token a */ \
-	da.start = 0; \
+	da.start = (ta)->start; \
 	jsmntok_t db; /* Differing token b */ \
-	db.start = 0; \
+	db.start = (tb)->start; \
 	if (!cmp_json_tokens(a,b,&ca,&cb,&da,&db)) { \
 		fprintf(stderr, "TASSERT_JSON_EQUAL Failed: %s:%s:%d:\n",\
 		        __FILE__,__func__,__LINE__);\
 		fprintf(stderr, " > \"%.*s\"\n", (ta)->end-(ta)->start, a+(ta)->start);\
 		fprintf(stderr, " >  ", a);\
-		if (da.start == db.start) { \
-			for (int i = 0; i < da.start; i++) fprintf(stderr, " "); \
+		if (da.start-(ta)->start == db.start-(tb)->start) { \
+			for (int i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "|\n"); \
-		} else if (da.start < db.start) { \
-			for (int i = 0; i < da.start; i++) fprintf(stderr, " "); \
+		} else if (da.start-(ta)->start < db.start-(tb)->start) { \
+			for (int i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "^"); \
-			for (int i = da.start; i < db.start-1; i++) fprintf(stderr, "-"); \
+			for (int i = da.start-(ta)->start; i < db.start-(tb)->start-1; i++) fprintf(stderr, "-"); \
 			fprintf(stderr, "v\n"); \
 		} else { \
-			for (int i = 0; i < db.start; i++) fprintf(stderr, " "); \
+			for (int i = (tb)->start; i < db.start-(tb)->start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "v"); \
-			for (int i = db.start; i < da.start-1; i++) fprintf(stderr, "-"); \
+			for (int i = db.start-(tb)->start; i < da.start-(ta)->start-1; i++) fprintf(stderr, "-"); \
 			fprintf(stderr, "^\n"); \
 		} \
 		fprintf(stderr, " > \"%.*s\"\n", (tb)->end-(tb)->start, b+(tb)->start);\
@@ -940,6 +940,7 @@ bool test_shet_make_action(void) {
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
 	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmaction\",\"/test/action2\"]");
 	
 	// Call with a single string argument
 	char line4[] = "[3,\"docall\",\"/test/action1\", \"just me\"]";
@@ -1090,6 +1091,8 @@ bool test_shet_make_prop(void) {
 	
 	// Make sure properties can be removed independently
 	shet_remove_prop(&state, "/test/prop2", NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmprop\",\"/test/prop2\"]");
 	
 	// Prop 1 should remain
 	char line5[] = "[0,\"getprop\",\"/test/prop1\"]";
@@ -1157,6 +1160,69 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	return true;
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+// Test events
+////////////////////////////////////////////////////////////////////////////////
+
+bool test_shet_watch_event(void) {
+	RESET_TRANSMIT_CB();
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	
+	deferred_t deferred1;
+	deferred_t deferred2;
+	callback_result_t result1;
+	callback_result_t result2;
+	result1.count = 0;
+	result2.count = 0;
+	
+	// Watch two independent events to ensure both receive notifications. Also
+	// tests no-argument events.
+	shet_watch_event(&state, "/test/event1",
+	                 &deferred1, callback, NULL, NULL, &result1,
+	                 NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"watch\",\"/test/event1\"]");
+	shet_watch_event(&state, "/test/event2",
+	                 &deferred2, callback, NULL, NULL, &result2,
+	                 NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"watch\",\"/test/event2\"]");
+	
+	char line1[] = "[0,\"event\",\"/test/event1\"]";
+	shet_process_line(&state, line1, strlen(line1));
+	TASSERT_INT_EQUAL(result1.count, 1);
+	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
+	TASSERT_INT_EQUAL(result2.count, 0);
+	
+	char line2[] = "[1,\"event\",\"/test/event2\"]";
+	shet_process_line(&state, line2, strlen(line2));
+	TASSERT_INT_EQUAL(result1.count, 1);
+	TASSERT_INT_EQUAL(result2.count, 1);
+	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
+	
+	// Make sure that we can ignore just one
+	shet_ignore_event(&state, "/test/event2", NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"ignore\",\"/test/event2\"]");
+	
+	// Test that the remaining one still works (also tests events with arguments).
+	char line3[] = "[2,\"event\",\"/test/event1\", 1,2,3]";
+	shet_process_line(&state, line3, strlen(line3));
+	TASSERT_INT_EQUAL(result1.count, 2);
+	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[1,2,3]");
+	TASSERT_INT_EQUAL(result2.count, 1);
+	
+	// And that the ignored one doesn't...
+	char line4[] = "[3,\"event\",\"/test/event2\"]";
+	shet_process_line(&state, line4, strlen(line4));
+	TASSERT_INT_EQUAL(result1.count, 2);
+	TASSERT_INT_EQUAL(result2.count, 1);
+	
+	return true;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // World starts here
 ////////////////////////////////////////////////////////////////////////////////
@@ -1175,6 +1241,7 @@ int main(int argc, char *argv[]) {
 		test_shet_call_action,
 		test_shet_make_prop,
 		test_shet_set_prop_and_shet_get_prop,
+		test_shet_watch_event,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
