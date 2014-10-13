@@ -72,9 +72,12 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 } } while (0)
 
 // Assert equal integers (prints the value of the integers on error)
-#define TASSERT_INT_EQUAL(a,b) do { if ((a) != (b)) { \
+#define TASSERT_INT_EQUAL(a,b) do { \
+  int va = (a); \
+  int vb = (b); \
+  if ((va) != (vb)) { \
 	fprintf(stderr, "TASSERT_INT_EQUAL Failed: %s:%s:%d: "#a" (%d) == "#b" (%d)\n",\
-	        __FILE__,__func__,__LINE__, (a), (b));\
+	        __FILE__,__func__,__LINE__, (va), (vb));\
 	return false; \
 } } while (0)
 
@@ -317,7 +320,7 @@ bool test_send_command(void) {
 	TASSERT(result.count == 0);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5, \"test5\"]");
 	char response[] = "[5, \"return\", 0, [1,2,3,4]]";
-	shet_process_line(&state, response, strlen(response));
+	TASSERT(shet_process_line(&state, response, strlen(response)) == SHET_PROC_OK);
 	TASSERT(result.count == 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3,4]");
 	
@@ -520,6 +523,74 @@ bool test_shet_state_init(void) {
 }
 
 
+bool test_shet_process_line_errors(void) {
+	RESET_TRANSMIT_CB();
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, (void *)test_shet_state_init);
+	
+	// Send an empty string
+	TASSERT(shet_process_line(&state, "", 0) == SHET_PROC_INVALID_JSON);
+	
+	// Send an invalid piece of JSON
+	char line1[] = "[not valid : even 1 bit}";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_INVALID_JSON);
+	
+	// Send an command of the wrong type
+	char line2[] = "{\"wrong\":\"type\"}";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_MALFORMED_COMMAND);
+	
+	// Send an command which is too short
+	char line3[] = "[0]";
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_MALFORMED_COMMAND);
+	
+	// Send an command with a non-string name
+	char line4[] = "[0, 123]";
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_MALFORMED_COMMAND);
+	
+	// Send an command which is unrecognised
+	char line5[] = "[0, \"thiswillneverexist\"]";
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_UNKNOWN_COMMAND);
+	
+	// Send a return with a non-integer ID
+	char line6[] = "[false, \"return\", 0, none]";
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_MALFORMED_RETURN);
+	
+	// Send a return with a non-integer success
+	char line7[] = "[0, \"return\", false, none]";
+	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_MALFORMED_RETURN);
+	
+	// Send a return with no argument
+	char line8[] = "[0, \"return\", 0]";
+	TASSERT(shet_process_line(&state, line8, strlen(line8)) == SHET_PROC_MALFORMED_RETURN);
+	
+	// Send a return with too-many arguments
+	char line9[] = "[0, \"return\", 0, 1,2,3]";
+	TASSERT(shet_process_line(&state, line9, strlen(line9)) == SHET_PROC_MALFORMED_RETURN);
+	
+	// Send a command without a path
+	char line10[] = "[0, \"event\"]";
+	TASSERT(shet_process_line(&state, line10, strlen(line10)) == SHET_PROC_MALFORMED_ARGUMENTS);
+	
+	// Send an event created with arguments (supposed to be none)
+	char line11[] = "[0, \"eventcreated\", \"/test\", 1]";
+	TASSERT(shet_process_line(&state, line11, strlen(line11)) == SHET_PROC_MALFORMED_ARGUMENTS);
+	
+	// Send an event deleted with arguments (supposed to be none)
+	char line12[] = "[0, \"eventdeleted\", \"/test\", 1]";
+	TASSERT(shet_process_line(&state, line12, strlen(line12)) == SHET_PROC_MALFORMED_ARGUMENTS);
+	
+	// Send a get property with arguments (supposed to be none)
+	char line13[] = "[0, \"getprop\", \"/test\", 1]";
+	TASSERT(shet_process_line(&state, line13, strlen(line13)) == SHET_PROC_MALFORMED_ARGUMENTS);
+	
+	// Send a set property with too-many arguments
+	char line14[] = "[0, \"setprop\", \"/test\", 1,2,3]";
+	TASSERT(shet_process_line(&state, line14, strlen(line14)) == SHET_PROC_MALFORMED_ARGUMENTS);
+	
+	return true;
+}
+
+
 
 bool test_shet_set_error_callback(void) {
 	RESET_TRANSMIT_CB();
@@ -529,7 +600,7 @@ bool test_shet_set_error_callback(void) {
 	// Make sure nothing happens when an unknown (non-successful) return arrives
 	// without an error callback setup
 	char line1[] = "[0,\"return\",1,[1,2,3]]";
-	shet_process_line(&state, line1, strlen(line1));
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	
 	// Set up the error callback
 	callback_result_t result;
@@ -538,12 +609,12 @@ bool test_shet_set_error_callback(void) {
 	
 	// Make sure unhandled unsuccessful returns get caught
 	char line2[] = "[1,\"return\",1,[1,2,3]]";
-	shet_process_line(&state, line2, strlen(line2));
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3]");
 	
 	char line3[] = "[1,\"return\",0,[3,2,1]]";
-	shet_process_line(&state, line3, strlen(line3));
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
 	
 	return true;
@@ -715,7 +786,7 @@ bool test_shet_register(void) {
 	for (int i = 0; i < num; i++) {
 		char msg[100];
 		sprintf(msg, "[%d,\"return\",0,null]", reg_return_ids[i]);
-		shet_process_line(&state, msg, strlen(msg));
+		TASSERT(shet_process_line(&state, msg, strlen(msg)) == SHET_PROC_OK);
 	}
 	for (int i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(cb_counts[i], 1);
@@ -736,7 +807,7 @@ bool test_shet_register(void) {
 	for (int i = 0; i < num; i++) {
 		char msg[100];
 		sprintf(msg, "[%d,\"return\",0,null]", reg_return_ids[i]);
-		shet_process_line(&state, msg, strlen(msg));
+		TASSERT(shet_process_line(&state, msg, strlen(msg)) == SHET_PROC_OK);
 	}
 	for (int i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(cb_counts[i], 2);
@@ -804,7 +875,8 @@ bool test_shet_cancel_deferred_and_shet_ping(void) {
 	
 	// Send response
 	char response1[] = "[1,\"return\",0,[1,2,3,{1:2,3:4}]]";
-	shet_process_line(&state, response1, strlen(response1));
+	TASSERT(shet_process_line(&state, response1, strlen(response1)) ==
+	SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3,{1:2,3:4}]");
 	
@@ -819,7 +891,8 @@ bool test_shet_cancel_deferred_and_shet_ping(void) {
 	
 	// Check that the response now doesn't trigger a callback
 	char response2[] = "[2,\"return\",0,[3,2,1]]";
-	shet_process_line(&state, response2, strlen(response2));
+	TASSERT(shet_process_line(&state, response2, strlen(response2)) ==
+	SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
 	
 	return true;
@@ -854,7 +927,7 @@ bool test_return(void) {
 	                 &deferred, return_null, NULL,
 	                 NULL, NULL, NULL, NULL);
 	char line1[] = "[{\"whacky\":\"id\"}, \"docall\", \"/test/action\", null]";
-	shet_process_line(&state, line1, strlen(line1));
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(transmit_count, 3);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[{\"whacky\":\"id\"}, \"return\", 0, null]");
 	shet_remove_action(&state, "/test/action", NULL, NULL, NULL, NULL);
@@ -864,7 +937,7 @@ bool test_return(void) {
 	                 &deferred, return_value, NULL,
 	                 NULL, NULL, NULL, NULL);
 	char line2[] = "[[\"volume\",11], \"docall\", \"/test/action\", null]";
-	shet_process_line(&state, line2, strlen(line2));
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(transmit_count, 6);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[[\"volume\":11], \"return\", 0, [1,2,3]]");
 	shet_remove_action(&state, "/test/action", NULL, NULL, NULL, NULL);
@@ -874,7 +947,7 @@ bool test_return(void) {
 	                 &deferred, return_later, NULL,
 	                 NULL, NULL, NULL, NULL);
 	char line3[] = "[\"eye-dee\", \"docall\", \"/test/action\", null]";
-	shet_process_line(&state, line3, strlen(line3));
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(transmit_count, 8);
 	
 	// Attempt to return using the stored ID
@@ -888,7 +961,7 @@ bool test_return(void) {
 	                 &deferred, return_null, NULL,
 	                 NULL, NULL, NULL, NULL);
 	char line4[] = "[null, \"docall\", \"/test/action\", null]";
-	shet_process_line(&state, line4, strlen(line4));
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(transmit_count, 12);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[null, \"return\", 0, null]");
 	shet_remove_action(&state, "/test/action", NULL, NULL, NULL, NULL);
@@ -929,7 +1002,7 @@ bool test_shet_make_action(void) {
 	// Call each action with a null argument to ensure both can act independently
 	// and that null arguments work
 	char line1[] = "[0,\"docall\",\"/test/action1\"]";
-	shet_process_line(&state, line1, strlen(line1));
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
 	TASSERT_INT_EQUAL(result2.count, 0);
@@ -937,7 +1010,7 @@ bool test_shet_make_action(void) {
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[]]");
 	
 	char line2[] = "[1,\"docall\",\"/test/action2\"]";
-	shet_process_line(&state, line2, strlen(line2));
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
@@ -949,7 +1022,7 @@ bool test_shet_make_action(void) {
 	TASSERT_INT_EQUAL(transmit_count, 6);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmaction\",\"/test/action2\"]");
 	char line3[] = "[2,\"docall\",\"/test/action2\"]";
-	shet_process_line(&state, line3, strlen(line3));
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
 	TASSERT_INT_EQUAL(transmit_count, 7);
@@ -957,7 +1030,7 @@ bool test_shet_make_action(void) {
 	
 	// Call with a single string argument
 	char line4[] = "[3,\"docall\",\"/test/action1\", \"just me\"]";
-	shet_process_line(&state, line4, strlen(line4));
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[\"just me\"]");
 	TASSERT_INT_EQUAL(transmit_count, 8);
@@ -965,7 +1038,7 @@ bool test_shet_make_action(void) {
 	
 	// Call with a single non-string primitive argument
 	char line5[] = "[4,\"docall\",\"/test/action1\", true]";
-	shet_process_line(&state, line5, strlen(line5));
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 3);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[true]");
 	TASSERT_INT_EQUAL(transmit_count, 9);
@@ -973,7 +1046,7 @@ bool test_shet_make_action(void) {
 	
 	// Call with a single compound argument
 	char line6[] = "[5,\"docall\",\"/test/action1\", [1,2,3]]";
-	shet_process_line(&state, line6, strlen(line6));
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 4);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[[1,2,3]]");
 	TASSERT_INT_EQUAL(transmit_count, 10);
@@ -981,7 +1054,7 @@ bool test_shet_make_action(void) {
 	
 	// Call with multiple arguments
 	char line7[] = "[6,\"docall\",\"/test/action1\", 1,2,3]";
-	shet_process_line(&state, line7, strlen(line7));
+	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 5);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[1,2,3]");
 	TASSERT_INT_EQUAL(transmit_count, 11);
@@ -1007,7 +1080,7 @@ bool test_shet_call_action(void) {
 	
 	// Test the return
 	char line1[] = "[1,\"return\",0,null]";
-	shet_process_line(&state, line1, strlen(line1));
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
 	
 	// Test a call with an argument
@@ -1018,7 +1091,7 @@ bool test_shet_call_action(void) {
 	
 	// Test the return
 	char line2[] = "[2,\"return\",0,null]";
-	shet_process_line(&state, line2, strlen(line2));
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 2);
 	
 	// Test a call with a failed response
@@ -1029,7 +1102,7 @@ bool test_shet_call_action(void) {
 	
 	// Test the return with an error
 	char line3[] = "[3,\"return\",1,\"fail\"]";
-	shet_process_line(&state, line3, strlen(line3));
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 3);
 	
 	return true;
@@ -1070,7 +1143,7 @@ bool test_shet_make_prop(void) {
 	
 	// Make sure they can be set independently
 	char line1[] = "[0,\"setprop\",\"/test/prop1\",123]";
-	shet_process_line(&state, line1, strlen(line1));
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[123]");
 	TASSERT_INT_EQUAL(result2.count, 0);
@@ -1078,7 +1151,7 @@ bool test_shet_make_prop(void) {
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,null]");
 	
 	char line2[] = "[1,\"setprop\",\"/test/prop2\",321]";
-	shet_process_line(&state, line2, strlen(line2));
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[321]");
@@ -1087,7 +1160,7 @@ bool test_shet_make_prop(void) {
 	
 	// Make sure they can be got independently
 	char line3[] = "[0,\"getprop\",\"/test/prop1\"]";
-	shet_process_line(&state, line3, strlen(line3));
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
 	TASSERT_INT_EQUAL(result2.count, 1);
@@ -1095,7 +1168,7 @@ bool test_shet_make_prop(void) {
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[1,2,3]]");
 	
 	char line4[] = "[1,\"getprop\",\"/test/prop2\"]";
-	shet_process_line(&state, line4, strlen(line4));
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 2);
 	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
@@ -1109,7 +1182,7 @@ bool test_shet_make_prop(void) {
 	
 	// Prop 1 should remain
 	char line5[] = "[0,\"getprop\",\"/test/prop1\"]";
-	shet_process_line(&state, line5, strlen(line5));
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 3);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
 	TASSERT_INT_EQUAL(result2.count, 2);
@@ -1118,7 +1191,7 @@ bool test_shet_make_prop(void) {
 	
 	// Prop 2 should nolonger exist
 	char line6[] = "[1,\"getprop\",\"/test/prop2\"]";
-	shet_process_line(&state, line6, strlen(line6));
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 3);
 	TASSERT_INT_EQUAL(result2.count, 2);
 	TASSERT_INT_EQUAL(transmit_count, 10);
@@ -1145,7 +1218,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	
 	// Test the return
 	char line1[] = "[1,\"return\",0,[1,2,3]]";
-	shet_process_line(&state, line1, strlen(line1));
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "[1,2,3]");
 	
@@ -1157,7 +1230,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	
 	// Test the return
 	char line2[] = "[2,\"return\",0,null]";
-	shet_process_line(&state, line2, strlen(line2));
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 2);
 	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "null");
 	
@@ -1167,7 +1240,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	TASSERT_INT_EQUAL(transmit_count, 4);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"set\",\"/test/set\", [9,9,9]]");
 	char line3[] = "[3,\"return\",1,\"fail\"]";
-	shet_process_line(&state, line3, strlen(line3));
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 3);
 	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "\"fail\"");
 	
@@ -1244,13 +1317,13 @@ bool test_shet_watch_event(void) {
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"watch\",\"/test/event2\"]");
 	
 	char line1[] = "[0,\"event\",\"/test/event1\"]";
-	shet_process_line(&state, line1, strlen(line1));
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
 	TASSERT_INT_EQUAL(result2.count, 0);
 	
 	char line2[] = "[1,\"event\",\"/test/event2\"]";
-	shet_process_line(&state, line2, strlen(line2));
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
@@ -1262,14 +1335,14 @@ bool test_shet_watch_event(void) {
 	
 	// Test that the remaining one still works (also tests events with arguments).
 	char line3[] = "[2,\"event\",\"/test/event1\", 1,2,3]";
-	shet_process_line(&state, line3, strlen(line3));
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[1,2,3]");
 	TASSERT_INT_EQUAL(result2.count, 1);
 	
 	// And that the ignored one doesn't...
 	char line4[] = "[3,\"event\",\"/test/event2\"]";
-	shet_process_line(&state, line4, strlen(line4));
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 1);
 	
@@ -1279,7 +1352,7 @@ bool test_shet_watch_event(void) {
 	                 NULL, NULL, NULL, NULL);
 	
 	char line5[] = "[5,\"eventcreated\",\"/test/event3\"]";
-	shet_process_line(&state, line5, strlen(line5));
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 2);
 	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
@@ -1291,7 +1364,7 @@ bool test_shet_watch_event(void) {
 	                 NULL, NULL, NULL, NULL);
 	
 	char line6[] = "[6,\"eventdeleted\",\"/test/event4\"]";
-	shet_process_line(&state, line6, strlen(line6));
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 3);
 	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
@@ -1308,6 +1381,7 @@ int main(int argc, char *argv[]) {
 		test_assert_int,
 		test_deferred_utilities,
 		test_shet_state_init,
+		test_shet_process_line_errors,
 		test_shet_set_error_callback,
 		test_send_command,
 		test_shet_register,

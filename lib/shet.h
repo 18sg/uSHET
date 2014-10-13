@@ -85,6 +85,36 @@ typedef void (*shet_callback_t)(shet_state_t *state,
                                 void *user_data);
 
 
+/**
+ * Success status of shet_process_line.
+ */
+typedef enum {
+	// The line was handled successfully
+	SHET_PROC_OK = 0,
+	
+	// The line could not be parsed due to insufficient jsmn tokens being
+	// available. Consider increasing SHET_NUM_TOKENS.
+	SHET_PROC_ERR_OUT_OF_TOKENS,
+	
+	// The line could not be parsed due to a JSON syntax error
+	SHET_PROC_INVALID_JSON,
+	
+	// The command received could not be interpreted, e.g. because it didn't
+	// follow the correct format for [id, command_name, ...].
+	SHET_PROC_MALFORMED_COMMAND,
+	
+	// The command received was not recognised (in this case a error return will
+	// also be sent to the SHET server).
+	SHET_PROC_UNKNOWN_COMMAND,
+	
+	// A return command featured fields with the incorrect types or lengths
+	SHET_PROC_MALFORMED_RETURN,
+	
+	// A command's arguments were of unexpected types or sizes.
+	SHET_PROC_MALFORMED_ARGUMENTS,
+} shet_processing_error_t;
+
+
 // Since the above types must be accessible to the compiler to allow users to
 // allocate storage for them they are defined in the following header. End-users
 // should, however, consider the types defined in this header otherwise opaque.
@@ -162,8 +192,10 @@ void shet_reregister(shet_state_t *state);
  *             trailing newline.
  * @param line_length The number of characters in the line (not including an
  *                    optional null-terminator).
+ * @return Returns a shet_processing_error_t indicating what, if anything, went
+ *         wrong when processing the provided input line.
  */
-void shet_process_line(shet_state_t *state, char *line, size_t line_length);
+shet_processing_error_t shet_process_line(shet_state_t *state, char *line, size_t line_length);
 
 /**
  * Ping the SHET server.

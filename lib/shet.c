@@ -136,21 +136,21 @@ static shet_deferred_t *find_named_cb(shet_state_t *state, const char *name, she
 ////////////////////////////////////////////////////////////////////////////////
 
 // Deal with a shet 'return' command, calling the appropriate callback.
-static void process_return(shet_state_t *state, jsmntok_t *tokens)
+static shet_processing_error_t process_return(shet_state_t *state, jsmntok_t *tokens)
 {
 	if (tokens[0].size != 4) {
 		DPRINTF("Return messages should be of length 4\n");
-		return;
+		return SHET_PROC_MALFORMED_RETURN;
 	}
 	
 	// Requests sent by uSHET always use integer IDs. Note this string is always a
 	// substring surrounded by non-numbers so atoi is safe.
-	if (!assert_int(state->line, &(tokens[1]))) return;
+	if (!assert_int(state->line, &(tokens[1]))) return SHET_PROC_MALFORMED_RETURN;
 	int id = atoi(state->line + tokens[1].start);
 	
 	// The success/fail value should be an int. Note this string is always a
 	// substring surrounded by non-numbers so atoi is safe.
-	if (!assert_int(state->line, &(tokens[3]))) return;
+	if (!assert_int(state->line, &(tokens[3]))) return SHET_PROC_MALFORMED_RETURN;
 	int success = atoi(state->line + tokens[3].start);
 	
 	// The returned value can be any JSON object
@@ -184,39 +184,51 @@ static void process_return(shet_state_t *state, jsmntok_t *tokens)
 	// Run the callback if it's not null.
 	if (callback_fun != NULL)
 		callback_fun(state, state->line, value_token, user_data);
+	
+	return SHET_PROC_OK;
 }
 
 
 // Process a command from the server
-static void process_command(shet_state_t *state, jsmntok_t *tokens, command_callback_type_t type)
+static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *tokens, command_callback_type_t type)
 {
 	size_t min_num_parts;
 	switch (type) {
-		case EVENT_CCB:
 		case EVENT_DELETED_CCB:
 		case EVENT_CREATED_CCB:
 		case GET_PROP_CCB:
-		case CALL_CCB:
-			min_num_parts = 3;
-			break;
+			if (tokens[0].size != 3) {
+				DPRINTF("Command accepts no arguments.\n");
+				return SHET_PROC_MALFORMED_ARGUMENTS;
+			} else {
+				break;
+			}
 		
 		case SET_PROP_CCB:
-			min_num_parts = 4;
-			break;
+			if (tokens[0].size != 4) {
+				DPRINTF("Command accepts exactly one argument.\n");
+				return SHET_PROC_MALFORMED_ARGUMENTS;
+			} else {
+				break;
+			}
+		
+		case EVENT_CCB:
+		case CALL_CCB:
+			if (tokens[0].size < 3) {
+				DPRINTF("Commands must have at least 3 components.\n");
+				return SHET_PROC_MALFORMED_ARGUMENTS;
+			} else {
+				break;
+			}
 		
 		default:
-			min_num_parts = -1;
-	}
-	
-	if (tokens[0].size < min_num_parts) {
-		DPRINTF("Command should be at least %d parts.\n", min_num_parts);
-		return;
+			return SHET_PROC_MALFORMED_ARGUMENTS;
 	}
 	
 	// Get the name. It is safe to clobber the char after the name since it will
 	// be a pair of quotes as part of the JSON syntax.
 	jsmntok_t *name_token = &(tokens[3 + tokens[1].size]);
-	if (!assert_type(name_token, JSMN_STRING)) return;
+	if (!assert_type(name_token, JSMN_STRING)) return SHET_PROC_MALFORMED_COMMAND;
 	const char *name = state->line + name_token->start;
 	state->line[name_token->end] = '\0';
 	
@@ -243,7 +255,7 @@ static void process_command(shet_state_t *state, jsmntok_t *tokens, command_call
 			break;
 	}
 	
-	// Get the callback and user data.
+	// Get the deferred callback and user data.
 	shet_callback_t callback_fun = NULL;
 	if (callback != NULL) {
 		switch (type) {
@@ -272,6 +284,8 @@ static void process_command(shet_state_t *state, jsmntok_t *tokens, command_call
 				shet_return(state, 1, "\"No callback handler registered!\"");
 				break;
 		}
+		
+		return SHET_PROC_OK;
 	} else {
 		// Execute the user's callback function
 		void *user_data;
@@ -322,17 +336,19 @@ static void process_command(shet_state_t *state, jsmntok_t *tokens, command_call
 		
 		if (callback_fun != NULL)
 			callback_fun(state, state->line, args_token, user_data);
+		
+		return SHET_PROC_OK;
 	}
 }
 
 
 // Process a message from shet.
-static void process_message(shet_state_t *state, jsmntok_t *tokens)
+static shet_processing_error_t process_message(shet_state_t *state, jsmntok_t *tokens)
 {
-	if (!assert_type(&(tokens[0]), JSMN_ARRAY)) return;
+	if (!assert_type(&(tokens[0]), JSMN_ARRAY)) return SHET_PROC_MALFORMED_COMMAND;
 	if (tokens[0].size < 2) {
 		DPRINTF("Command too short.\n");
-		return;
+		return SHET_PROC_MALFORMED_COMMAND;
 	}
 	
 	// Record the ID token
@@ -341,27 +357,30 @@ static void process_message(shet_state_t *state, jsmntok_t *tokens)
 	// Note that the command is at least followed by the closing bracket and if
 	// not a comma and so nulling out the character following it is safe.
 	jsmntok_t *command_token = &(tokens[2 + tokens[1].size]);
-	if (!assert_type(command_token, JSMN_STRING)) return;
+	if (!assert_type(command_token, JSMN_STRING)) return SHET_PROC_MALFORMED_COMMAND;
 	const char *command = state->line + command_token->start;
 	state->line[command_token->end] = '\0';
 	
 	// Extract args in indiviaual handling functions -- too much effort to do here.
 	if (strcmp(command, "return") == 0)
-		process_return(state, tokens);
+		return process_return(state, tokens);
 	else if (strcmp(command, "event") == 0)
-		process_command(state, tokens, EVENT_CCB);
+		return process_command(state, tokens, EVENT_CCB);
 	else if (strcmp(command, "eventdeleted") == 0)
-		process_command(state, tokens, EVENT_DELETED_CCB);
+		return process_command(state, tokens, EVENT_DELETED_CCB);
 	else if (strcmp(command, "eventcreated") == 0)
-		process_command(state, tokens, EVENT_CREATED_CCB);
+		return process_command(state, tokens, EVENT_CREATED_CCB);
 	else if (strcmp(command, "getprop") == 0)
-		process_command(state, tokens, GET_PROP_CCB);
+		return process_command(state, tokens, GET_PROP_CCB);
 	else if (strcmp(command, "setprop") == 0)
-		process_command(state, tokens, SET_PROP_CCB);
+		return process_command(state, tokens, SET_PROP_CCB);
 	else if (strcmp(command, "docall") == 0)
-		process_command(state, tokens, CALL_CCB);
-	else
-		DPRINTF("unsupported command: \"%s\"\n", command);
+		return process_command(state, tokens, CALL_CCB);
+	else {
+		DPRINTF("Unknown command: \"%s\"\n", command);
+		shet_return(state, 1, "Unknown command.");
+		return SHET_PROC_UNKNOWN_COMMAND;
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -439,11 +458,11 @@ void shet_set_error_callback(shet_state_t *state,
 	state->error_callback_data = callback_arg;
 }
 
-void shet_process_line(shet_state_t *state, char *line, size_t line_length)
+shet_processing_error_t shet_process_line(shet_state_t *state, char *line, size_t line_length)
 {
 	if (line_length <= 0) {
 		DPRINTF("JSON string is too short!\n");
-		return;
+		return SHET_PROC_INVALID_JSON;
 	}
 	
 	state->line = line;
@@ -461,23 +480,23 @@ void shet_process_line(shet_state_t *state, char *line, size_t line_length)
 		case JSMN_ERROR_NOMEM:
 			DPRINTF("Out of JSON tokens in shet_process_line: %.*s\n",
 			        line_length, state->line);
-			break;
+			return SHET_PROC_ERR_OUT_OF_TOKENS;
 		
 		case JSMN_ERROR_INVAL:
 			DPRINTF("Invalid char in JSON string in shet_process_line: %.*s\n",
 			        line_length, state->line);
-			break;
+			return SHET_PROC_INVALID_JSON;
 		
 		case JSMN_ERROR_PART:
 			DPRINTF("Incomplete JSON string in shet_process_line: %.*s.\n",
 			        line_length, state->line);
-			break;
+			return SHET_PROC_INVALID_JSON;
 		
 		default:
 			if ((int)e > 0) {
-				process_message(state, state->tokens);
+				return process_message(state, state->tokens);
 			} else {
-				DPRINTF("No tokens in JSON in shet_process_line.\n");
+				return SHET_PROC_INVALID_JSON;
 			}
 			break;
 	}
