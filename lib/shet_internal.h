@@ -8,20 +8,20 @@ extern "C" {
 
 // Define 4 types of callbacks that we store.
 typedef enum {
-	RETURN_CB,
-	EVENT_CB,
-	ACTION_CB,
-	PROP_CB,
+	SHET_RETURN_CB,
+	SHET_EVENT_CB,
+	SHET_ACTION_CB,
+	SHET_PROP_CB,
 } shet_deferred_type_t;
 
 // Define the types of (from) server command callbacks
 typedef enum {
-	EVENT_CCB,
-	EVENT_DELETED_CCB,
-	EVENT_CREATED_CCB,
-	GET_PROP_CCB,
-	SET_PROP_CCB,
-	CALL_CCB,
+	SHET_EVENT_CCB,
+	SHET_EVENT_DELETED_CCB,
+	SHET_EVENT_CREATED_CCB,
+	SHET_GET_PROP_CCB,
+	SHET_SET_PROP_CCB,
+	SHET_CALL_CCB,
 } command_callback_type_t;
 
 typedef struct {

@@ -342,19 +342,19 @@ bool test_deferred_utilities(void) {
 	
 	// Make sure searches don't find stuff or crash on empty lists
 	TASSERT(find_return_cb(&state, 0) == NULL);
-	TASSERT(find_named_cb(&state, "/", EVENT_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", EVENT_DELETED_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", EVENT_CREATED_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", GET_PROP_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", SET_PROP_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", CALL_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_EVENT_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_EVENT_DELETED_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_EVENT_CREATED_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_GET_PROP_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_SET_PROP_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_CALL_CCB) == NULL);
 	
 	// ...and that searching doesn't add stuff
 	TASSERT(state.callbacks == NULL);
 	
 	// Add a return
 	shet_deferred_t d1;
-	d1.type = RETURN_CB;
+	d1.type = SHET_RETURN_CB;
 	d1.data.return_cb.id = 0;
 	add_deferred(&state, &d1);
 	
@@ -365,12 +365,12 @@ bool test_deferred_utilities(void) {
 	// Make sure it is found (but not found by anything else)
 	TASSERT(find_return_cb(&state, 0) == &d1);
 	TASSERT(find_return_cb(&state, 1) == NULL);
-	TASSERT(find_named_cb(&state, "/", EVENT_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", EVENT_DELETED_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", EVENT_CREATED_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", GET_PROP_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", SET_PROP_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", CALL_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_EVENT_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_EVENT_DELETED_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_EVENT_CREATED_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_GET_PROP_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_SET_PROP_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_CALL_CCB) == NULL);
 	
 	// Make sure it can be added a second time without duplicating
 	add_deferred(&state, &d1);
@@ -382,12 +382,12 @@ bool test_deferred_utilities(void) {
 	// Make sure it is found (but not found by anything else)
 	TASSERT(find_return_cb(&state, 0) == &d1);
 	TASSERT(find_return_cb(&state, 1) == NULL);
-	TASSERT(find_named_cb(&state, "/", EVENT_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", EVENT_DELETED_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", EVENT_CREATED_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", GET_PROP_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", SET_PROP_CCB) == NULL);
-	TASSERT(find_named_cb(&state, "/", CALL_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_EVENT_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_EVENT_DELETED_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_EVENT_CREATED_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_GET_PROP_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_SET_PROP_CCB) == NULL);
+	TASSERT(find_named_cb(&state, "/", SHET_CALL_CCB) == NULL);
 	
 	// Make sure we can remove it
 	remove_deferred(&state, &d1);
@@ -398,7 +398,7 @@ bool test_deferred_utilities(void) {
 	
 	// Add more than one item
 	shet_deferred_t d2;
-	d2.type = RETURN_CB;
+	d2.type = SHET_RETURN_CB;
 	d2.data.return_cb.id = 1;
 	add_deferred(&state, &d2);
 	add_deferred(&state, &d1);
@@ -442,61 +442,61 @@ bool test_deferred_utilities(void) {
 	TASSERT(state.callbacks == NULL);
 	
 	// Test that we can find event callbacks
-	d1.type = EVENT_CB;
+	d1.type = SHET_EVENT_CB;
 	d1.data.event_cb.watch_deferred = NULL;
 	d1.data.event_cb.event_name = "/event/d1";
 	add_deferred(&state, &d1);
-	d2.type = EVENT_CB;
+	d2.type = SHET_EVENT_CB;
 	d2.data.event_cb.watch_deferred = NULL;
 	d2.data.event_cb.event_name = "/event/d2";
 	add_deferred(&state, &d2);
 	
-	TASSERT(find_named_cb(&state, "/event/d1", EVENT_CB) == &d1);
-	TASSERT(find_named_cb(&state, "/event/d2", EVENT_CB) == &d2);
+	TASSERT(find_named_cb(&state, "/event/d1", SHET_EVENT_CB) == &d1);
+	TASSERT(find_named_cb(&state, "/event/d2", SHET_EVENT_CB) == &d2);
 	
 	// And that non-existant stuff doesn't get found
-	TASSERT(find_named_cb(&state, "/non_existant", EVENT_CB) == NULL);
-	TASSERT(find_named_cb(&state, "/event/d1", ACTION_CB) == NULL);
-	TASSERT(find_named_cb(&state, "/event/d1", PROP_CB) == NULL);
-	TASSERT(find_named_cb(&state, "/event/d1", RETURN_CB) == NULL);
+	TASSERT(find_named_cb(&state, "/non_existant", SHET_EVENT_CB) == NULL);
+	TASSERT(find_named_cb(&state, "/event/d1", SHET_ACTION_CB) == NULL);
+	TASSERT(find_named_cb(&state, "/event/d1", SHET_PROP_CB) == NULL);
+	TASSERT(find_named_cb(&state, "/event/d1", SHET_RETURN_CB) == NULL);
 	
 	// Try actions...
 	remove_deferred(&state, &d1);
 	remove_deferred(&state, &d2);
-	d1.type = ACTION_CB;
+	d1.type = SHET_ACTION_CB;
 	d1.data.action_cb.mkaction_deferred = NULL;
 	d1.data.action_cb.action_name = "/action/d1";
-	d2.type = ACTION_CB;
+	d2.type = SHET_ACTION_CB;
 	d2.data.action_cb.mkaction_deferred = NULL;
 	d2.data.action_cb.action_name = "/action/d2";
 	add_deferred(&state, &d1);
 	add_deferred(&state, &d2);
 	
-	TASSERT(find_named_cb(&state, "/action/d1", ACTION_CB) == &d1);
-	TASSERT(find_named_cb(&state, "/action/d2", ACTION_CB) == &d2);
+	TASSERT(find_named_cb(&state, "/action/d1", SHET_ACTION_CB) == &d1);
+	TASSERT(find_named_cb(&state, "/action/d2", SHET_ACTION_CB) == &d2);
 	
-	TASSERT(find_named_cb(&state, "/action/d1", EVENT_CB) == NULL);
-	TASSERT(find_named_cb(&state, "/action/d1", PROP_CB) == NULL);
-	TASSERT(find_named_cb(&state, "/action/d1", RETURN_CB) == NULL);
+	TASSERT(find_named_cb(&state, "/action/d1", SHET_EVENT_CB) == NULL);
+	TASSERT(find_named_cb(&state, "/action/d1", SHET_PROP_CB) == NULL);
+	TASSERT(find_named_cb(&state, "/action/d1", SHET_RETURN_CB) == NULL);
 	
 	// Try properties...
 	remove_deferred(&state, &d1);
 	remove_deferred(&state, &d2);
-	d1.type = PROP_CB;
+	d1.type = SHET_PROP_CB;
 	d1.data.prop_cb.mkprop_deferred = NULL;
 	d1.data.prop_cb.prop_name = "/prop/d1";
-	d2.type = PROP_CB;
+	d2.type = SHET_PROP_CB;
 	d2.data.prop_cb.mkprop_deferred = NULL;
 	d2.data.prop_cb.prop_name = "/prop/d2";
 	add_deferred(&state, &d1);
 	add_deferred(&state, &d2);
 	
-	TASSERT(find_named_cb(&state, "/prop/d1", PROP_CB) == &d1);
-	TASSERT(find_named_cb(&state, "/prop/d2", PROP_CB) == &d2);
+	TASSERT(find_named_cb(&state, "/prop/d1", SHET_PROP_CB) == &d1);
+	TASSERT(find_named_cb(&state, "/prop/d2", SHET_PROP_CB) == &d2);
 	
-	TASSERT(find_named_cb(&state, "/prop/d1", EVENT_CB) == NULL);
-	TASSERT(find_named_cb(&state, "/prop/d1", ACTION_CB) == NULL);
-	TASSERT(find_named_cb(&state, "/prop/d1", RETURN_CB) == NULL);
+	TASSERT(find_named_cb(&state, "/prop/d1", SHET_EVENT_CB) == NULL);
+	TASSERT(find_named_cb(&state, "/prop/d1", SHET_ACTION_CB) == NULL);
+	TASSERT(find_named_cb(&state, "/prop/d1", SHET_RETURN_CB) == NULL);
 	
 	return true;
 }

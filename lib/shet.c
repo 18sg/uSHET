@@ -94,7 +94,7 @@ static shet_deferred_t *find_return_cb(shet_state_t *state, int id)
 {
 	shet_deferred_t *callback = state->callbacks;
 	for (; callback != NULL; callback = callback->next)
-		if (callback->type == RETURN_CB && callback->data.return_cb.id == id)
+		if (callback->type == SHET_RETURN_CB && callback->data.return_cb.id == id)
 			break;
 	
 	if (callback == NULL) {
@@ -112,14 +112,14 @@ static shet_deferred_t *find_named_cb(shet_state_t *state, const char *name, she
 {
 	shet_deferred_t *callback = state->callbacks;
 	for (; callback != NULL; callback = callback->next)
-		if (   ( type == EVENT_CB &&
-		         callback->type == EVENT_CB && 
+		if (   ( type == SHET_EVENT_CB &&
+		         callback->type == SHET_EVENT_CB && 
 		         strcmp(callback->data.event_cb.event_name, name) == 0)
-		    || ( type == PROP_CB &&
-		         callback->type == PROP_CB && 
+		    || ( type == SHET_PROP_CB &&
+		         callback->type == SHET_PROP_CB && 
 		         strcmp(callback->data.prop_cb.prop_name, name) == 0)
-		    || ( type == ACTION_CB &&
-		         callback->type == ACTION_CB && 
+		    || ( type == SHET_ACTION_CB &&
+		         callback->type == SHET_ACTION_CB && 
 		         strcmp(callback->data.action_cb.action_name, name) == 0))
 			break;
 	
@@ -194,9 +194,9 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 {
 	size_t min_num_parts;
 	switch (type) {
-		case EVENT_DELETED_CCB:
-		case EVENT_CREATED_CCB:
-		case GET_PROP_CCB:
+		case SHET_EVENT_DELETED_CCB:
+		case SHET_EVENT_CREATED_CCB:
+		case SHET_GET_PROP_CCB:
 			if (tokens[0].size != 3) {
 				DPRINTF("Command accepts no arguments.\n");
 				return SHET_PROC_MALFORMED_ARGUMENTS;
@@ -204,7 +204,7 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 				break;
 			}
 		
-		case SET_PROP_CCB:
+		case SHET_SET_PROP_CCB:
 			if (tokens[0].size != 4) {
 				DPRINTF("Command accepts exactly one argument.\n");
 				return SHET_PROC_MALFORMED_ARGUMENTS;
@@ -212,8 +212,8 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 				break;
 			}
 		
-		case EVENT_CCB:
-		case CALL_CCB:
+		case SHET_EVENT_CCB:
+		case SHET_CALL_CCB:
 			if (tokens[0].size < 3) {
 				DPRINTF("Commands must have at least 3 components.\n");
 				return SHET_PROC_MALFORMED_ARGUMENTS;
@@ -235,19 +235,19 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 	// Find the callback for this event.
 	shet_deferred_t *callback;
 	switch (type) {
-		case EVENT_CCB:
-		case EVENT_DELETED_CCB:
-		case EVENT_CREATED_CCB:
-			callback = find_named_cb(state, name, EVENT_CB);
+		case SHET_EVENT_CCB:
+		case SHET_EVENT_DELETED_CCB:
+		case SHET_EVENT_CREATED_CCB:
+			callback = find_named_cb(state, name, SHET_EVENT_CB);
 			break;
 		
-		case GET_PROP_CCB:
-		case SET_PROP_CCB:
-			callback = find_named_cb(state, name, PROP_CB);
+		case SHET_GET_PROP_CCB:
+		case SHET_SET_PROP_CCB:
+			callback = find_named_cb(state, name, SHET_PROP_CB);
 			break;
 		
-		case CALL_CCB:
-			callback = find_named_cb(state, name, ACTION_CB);
+		case SHET_CALL_CCB:
+			callback = find_named_cb(state, name, SHET_ACTION_CB);
 			break;
 		
 		default:
@@ -259,12 +259,12 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 	shet_callback_t callback_fun = NULL;
 	if (callback != NULL) {
 		switch (type) {
-			case EVENT_CCB:         callback_fun = callback->data.event_cb.event_callback; break;
-			case EVENT_DELETED_CCB: callback_fun = callback->data.event_cb.deleted_callback; break;
-			case EVENT_CREATED_CCB: callback_fun = callback->data.event_cb.created_callback; break;
-			case GET_PROP_CCB:      callback_fun = callback->data.prop_cb.get_callback; break;
-			case SET_PROP_CCB:      callback_fun = callback->data.prop_cb.set_callback; break;
-			case CALL_CCB:          callback_fun = callback->data.action_cb.callback; break;
+			case SHET_EVENT_CCB:         callback_fun = callback->data.event_cb.event_callback; break;
+			case SHET_EVENT_DELETED_CCB: callback_fun = callback->data.event_cb.deleted_callback; break;
+			case SHET_EVENT_CREATED_CCB: callback_fun = callback->data.event_cb.created_callback; break;
+			case SHET_GET_PROP_CCB:      callback_fun = callback->data.prop_cb.get_callback; break;
+			case SHET_SET_PROP_CCB:      callback_fun = callback->data.prop_cb.set_callback; break;
+			case SHET_CALL_CCB:          callback_fun = callback->data.action_cb.callback; break;
 			default:                callback_fun = NULL; break;
 		}
 	}
@@ -272,15 +272,15 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 	if (callback_fun == NULL) {
 		// No callback function specified, generate an appropriate 
 		switch (type) {
-			case EVENT_CCB:
-			case EVENT_DELETED_CCB:
-			case EVENT_CREATED_CCB:
+			case SHET_EVENT_CCB:
+			case SHET_EVENT_DELETED_CCB:
+			case SHET_EVENT_CREATED_CCB:
 				shet_return(state, 0, NULL);
 				break;
 			
-			case GET_PROP_CCB:
-			case SET_PROP_CCB:
-			case CALL_CCB:
+			case SHET_GET_PROP_CCB:
+			case SHET_SET_PROP_CCB:
+			case SHET_CALL_CCB:
 				shet_return(state, 1, "\"No callback handler registered!\"");
 				break;
 		}
@@ -290,18 +290,18 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 		// Execute the user's callback function
 		void *user_data;
 		switch (type) {
-			case EVENT_CCB:
-			case EVENT_CREATED_CCB:
-			case EVENT_DELETED_CCB:
+			case SHET_EVENT_CCB:
+			case SHET_EVENT_CREATED_CCB:
+			case SHET_EVENT_DELETED_CCB:
 				user_data = callback->data.event_cb.user_data;
 				break;
 			
-			case GET_PROP_CCB:
-			case SET_PROP_CCB:
+			case SHET_GET_PROP_CCB:
+			case SHET_SET_PROP_CCB:
 				user_data = callback->data.prop_cb.user_data;
 				break;
 			
-			case CALL_CCB:
+			case SHET_CALL_CCB:
 				user_data = callback->data.action_cb.user_data;
 				break;
 			
@@ -365,17 +365,17 @@ static shet_processing_error_t process_message(shet_state_t *state, jsmntok_t *t
 	if (strcmp(command, "return") == 0)
 		return process_return(state, tokens);
 	else if (strcmp(command, "event") == 0)
-		return process_command(state, tokens, EVENT_CCB);
+		return process_command(state, tokens, SHET_EVENT_CCB);
 	else if (strcmp(command, "eventdeleted") == 0)
-		return process_command(state, tokens, EVENT_DELETED_CCB);
+		return process_command(state, tokens, SHET_EVENT_DELETED_CCB);
 	else if (strcmp(command, "eventcreated") == 0)
-		return process_command(state, tokens, EVENT_CREATED_CCB);
+		return process_command(state, tokens, SHET_EVENT_CREATED_CCB);
 	else if (strcmp(command, "getprop") == 0)
-		return process_command(state, tokens, GET_PROP_CCB);
+		return process_command(state, tokens, SHET_GET_PROP_CCB);
 	else if (strcmp(command, "setprop") == 0)
-		return process_command(state, tokens, SET_PROP_CCB);
+		return process_command(state, tokens, SHET_SET_PROP_CCB);
 	else if (strcmp(command, "docall") == 0)
-		return process_command(state, tokens, CALL_CCB);
+		return process_command(state, tokens, SHET_CALL_CCB);
 	else {
 		DPRINTF("Unknown command: \"%s\"\n", command);
 		shet_return(state, 1, "Unknown command.");
@@ -418,7 +418,7 @@ static void send_command(shet_state_t *state,
 	
 	// Register the callback (if supplied).
 	if (deferred != NULL) {
-		deferred->type = RETURN_CB;
+		deferred->type = SHET_RETURN_CB;
 		deferred->data.return_cb.id = id;
 		deferred->data.return_cb.success_callback = callback;
 		deferred->data.return_cb.error_callback = err_callback;
@@ -510,10 +510,10 @@ void shet_reregister(shet_state_t *state) {
 	shet_deferred_t *iter;
 	for (iter = state->callbacks; iter != NULL; iter = iter->next) {
 		switch(iter->type) {
-			case EVENT_CB: {
+			case SHET_EVENT_CB: {
 				// Find the original watch callback deferred
 				shet_deferred_t *watch_deferred = iter->data.event_cb.watch_deferred;
-				if (watch_deferred != NULL && watch_deferred->type != RETURN_CB)
+				if (watch_deferred != NULL && watch_deferred->type != SHET_RETURN_CB)
 					watch_deferred = NULL;
 				
 				// Re-register the watch
@@ -525,10 +525,10 @@ void shet_reregister(shet_state_t *state) {
 				break;
 			}
 			
-			case ACTION_CB: {
+			case SHET_ACTION_CB: {
 				// Find the original make action callback deferred
 				shet_deferred_t *mkaction_deferred = iter->data.action_cb.mkaction_deferred;
-				if (mkaction_deferred != NULL && mkaction_deferred->type != RETURN_CB)
+				if (mkaction_deferred != NULL && mkaction_deferred->type != SHET_RETURN_CB)
 					mkaction_deferred = NULL;
 				
 				// Re-create the action
@@ -540,10 +540,10 @@ void shet_reregister(shet_state_t *state) {
 				break;
 			}
 			
-			case PROP_CB: {
+			case SHET_PROP_CB: {
 				// Find the original make property callback deferred
 				shet_deferred_t *mkprop_deferred = iter->data.prop_cb.mkprop_deferred;
-				if (mkprop_deferred != NULL && mkprop_deferred->type != RETURN_CB)
+				if (mkprop_deferred != NULL && mkprop_deferred->type != SHET_RETURN_CB)
 					mkprop_deferred = NULL;
 				
 				// Re-create the property
@@ -562,7 +562,7 @@ void shet_reregister(shet_state_t *state) {
 	for (ev_iter = state->registered_events; ev_iter != NULL; ev_iter = ev_iter->next) {
 			// Find the original make event callback deferred
 			shet_deferred_t *mkevent_deferred = ev_iter->mkevent_deferred;
-			if (mkevent_deferred != NULL && mkevent_deferred->type != RETURN_CB)
+			if (mkevent_deferred != NULL && mkevent_deferred->type != SHET_RETURN_CB)
 				mkevent_deferred = NULL;
 			
 			// Re-register the event
@@ -655,7 +655,7 @@ void shet_make_action(shet_state_t *state,
                       void *mkaction_callback_arg)
 {
 	// Make a callback for the property.
-	action_deferred->type = ACTION_CB;
+	action_deferred->type = SHET_ACTION_CB;
 	action_deferred->data.action_cb.mkaction_deferred = mkaction_deferred;
 	action_deferred->data.action_cb.action_name = path;
 	action_deferred->data.action_cb.callback = callback;
@@ -679,7 +679,7 @@ void shet_remove_action(shet_state_t *state,
                         void *callback_arg)
 {
 	// Cancel the action deferred and associated mkaction deferred
-	shet_deferred_t *action_deferred = find_named_cb(state, path, ACTION_CB);
+	shet_deferred_t *action_deferred = find_named_cb(state, path, SHET_ACTION_CB);
 	if (action_deferred != NULL) {
 		remove_deferred(state, action_deferred);
 		if (action_deferred->data.action_cb.mkaction_deferred != NULL)
@@ -723,7 +723,7 @@ void shet_make_prop(shet_state_t *state,
                     void *mkprop_callback_arg)
 {
 	// Make a callback for the property.
-	prop_deferred->type = PROP_CB;
+	prop_deferred->type = SHET_PROP_CB;
 	prop_deferred->data.prop_cb.mkprop_deferred = mkprop_deferred;
 	prop_deferred->data.prop_cb.prop_name = path;
 	prop_deferred->data.prop_cb.get_callback = get_callback;
@@ -748,7 +748,7 @@ void shet_remove_prop(shet_state_t *state,
                       void *callback_arg)
 {
 	// Cancel the property deferred (and that of the mkprop callback)
-	shet_deferred_t *prop_deferred = find_named_cb(state, path, PROP_CB);
+	shet_deferred_t *prop_deferred = find_named_cb(state, path, SHET_PROP_CB);
 	if (prop_deferred != NULL) {
 		remove_deferred(state, prop_deferred);
 		if (prop_deferred->data.prop_cb.mkprop_deferred != NULL)
@@ -870,7 +870,7 @@ void shet_watch_event(shet_state_t *state,
                       void *watch_callback_arg)
 {
 	// Make a callback for the event.
-	event_deferred->type = EVENT_CB;
+	event_deferred->type = SHET_EVENT_CB;
 	event_deferred->data.event_cb.watch_deferred = watch_deferred;
 	event_deferred->data.event_cb.event_name = path;
 	event_deferred->data.event_cb.event_callback = event_callback;
@@ -897,7 +897,7 @@ void shet_ignore_event(shet_state_t *state,
                        void *callback_arg)
 {
 	// Cancel the watch deferred and associated event deferred
-	shet_deferred_t *event_deferred = find_named_cb(state, path, EVENT_CB);
+	shet_deferred_t *event_deferred = find_named_cb(state, path, SHET_EVENT_CB);
 	if (event_deferred != NULL) {
 		shet_deferred_t *watch_deferred = event_deferred->data.event_cb.watch_deferred;
 		if (watch_deferred != NULL) {
