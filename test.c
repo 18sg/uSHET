@@ -18,19 +18,21 @@
 // Given two JSON strings and their tokens return the token which points to the
 // first differing componenst in each via differing_{a,b}. Returns a bool which
 // is true if the JSON is the same and false if not. If differing_{a,b} are
-// NULL, they will not be set.
+// NULL, they will not be set. tokens_{a,b} are expected to be double pointers
+// to a token pointer initialised to the first token to process.
 bool cmp_json_tokens(const char *json_a, const char *json_b,
                      jsmntok_t **tokens_a, jsmntok_t **tokens_b,
                      jsmntok_t *differing_a, jsmntok_t *differing_b) {
-	// Sanity check the basic object
+	// Initially just check to see if the types are even comparable
 	if ((**tokens_a).type != (**tokens_b).type ||
 	    (**tokens_a).size != (**tokens_b).size) {
 		*differing_a = **tokens_a;
 		*differing_b = **tokens_b;
 		return false;
+	
+	// Compare atomic objects
 	} else if ((*tokens_a)->type == JSMN_PRIMITIVE ||
 	           (*tokens_a)->type == JSMN_STRING) {
-		// Compare atomic objects
 		if (strncmp(json_a+(*tokens_a)->start,
 		            json_b+(*tokens_b)->start,
 		            (*tokens_a)->end - (*tokens_a)->start) != 0) {
@@ -42,8 +44,9 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 			(*tokens_b)++;
 			return true;
 		}
+	
+	// Iterate over and compare compound objects
 	} else {
-		// Iterate over compound objects
 		int size = (**tokens_a).size;
 		(*tokens_a)++;
 		(*tokens_b)++;
@@ -67,7 +70,7 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	return false; \
 } } while (0)
 
-// Assert equal integers
+// Assert equal integers (prints the value of the integers on error)
 #define TASSERT_INT_EQUAL(a,b) do { if ((a) != (b)) { \
 	fprintf(stderr, "TASSERT Failed: %s:%s:%d: "#a" (%d) == "#b" (%d)\n",\
 	        __FILE__,__func__,__LINE__, (a), (b));\
@@ -75,7 +78,8 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 } } while (0)
 
 // Compare two JSON strings given as a set of tokens and assert that they are
-// equivilent
+// equivilent. If they are not, prints the two strings along with an indicator
+// pointing at the first non-matching parts.
 #define TASSERT_JSON_EQUAL_TOK_TOK(sa,ta,sb,tb) do { \
 	TASSERT((sa) != NULL);\
 	TASSERT((ta) != NULL);\
@@ -83,8 +87,8 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	TASSERT((tb) != NULL);\
 	const char *a = (sa); /* JSON String a */ \
 	const char *b = (sb); /* JSON String b */ \
-	jsmntok_t *ca = (ta); /* Cur token a */ \
-	jsmntok_t *cb = (tb); /* Cur token b */ \
+	jsmntok_t *ca = (ta); /* Cur token pointer a */ \
+	jsmntok_t *cb = (tb); /* Cur token pointer b */ \
 	jsmntok_t da; /* Differing token a */ \
 	da.start = 0; \
 	jsmntok_t db; /* Differing token b */ \
@@ -127,8 +131,7 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 } while (0)
 
 
-// Compare two JSON strings the first given as a string and token and the other
-// as a string and assert that they are equivilent.
+// Compare two JSON strings given as strings.
 #define TASSERT_JSON_EQUAL_STR_STR(sa,sb) do { \
 	jsmn_parser p; \
 	jsmn_init(&p); \
