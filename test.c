@@ -72,7 +72,7 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 
 // Assert equal integers (prints the value of the integers on error)
 #define TASSERT_INT_EQUAL(a,b) do { if ((a) != (b)) { \
-	fprintf(stderr, "TASSERT Failed: %s:%s:%d: "#a" (%d) == "#b" (%d)\n",\
+	fprintf(stderr, "TASSERT_INT_EQUAL Failed: %s:%s:%d: "#a" (%d) == "#b" (%d)\n",\
 	        __FILE__,__func__,__LINE__, (a), (b));\
 	return false; \
 } } while (0)
@@ -94,7 +94,7 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	jsmntok_t db; /* Differing token b */ \
 	db.start = 0; \
 	if (!cmp_json_tokens(a,b,&ca,&cb,&da,&db)) { \
-		fprintf(stderr, "TASSERT_JSON_EQUAL_TOK_TOK Failed: %s:%s:%d:\n",\
+		fprintf(stderr, "TASSERT_JSON_EQUAL Failed: %s:%s:%d:\n",\
 		        __FILE__,__func__,__LINE__);\
 		fprintf(stderr, " > \"%.*s\"\n", (ta)->end-(ta)->start, a+(ta)->start);\
 		fprintf(stderr, " >  ", a);\
@@ -126,7 +126,11 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	jsmntok_t tb[100]; \
 	jsmnerr_t e = jsmn_parse(&p, sb, strlen(sb), \
 	                         tb, 100); \
-	TASSERT(e >= 0); \
+	if (e <= 0) { \
+		fprintf(stderr, "TASSERT_JSON_EQUAL Could not parse JSON: %s:%s:%d: %s\n",\
+		        __FILE__,__func__,__LINE__,sa); \
+		return false; \
+	} \
 	TASSERT_JSON_EQUAL_TOK_TOK(sa, ta, sb, tb);\
 } while (0)
 
@@ -138,7 +142,11 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	jsmntok_t ta[100]; \
 	jsmnerr_t e = jsmn_parse(&p, sa, strlen(sa), \
 	                         ta, 100); \
-	TASSERT(e >= 0); \
+	if (e <= 0) { \
+		fprintf(stderr, "TASSERT_JSON_EQUAL Could not parse JSON: %s:%s:%d: %s\n",\
+		        __FILE__,__func__,__LINE__,sa); \
+		return false; \
+	} \
 	TASSERT_JSON_EQUAL_TOK_STR(sa, ta, sb);\
 } while (0)
 
@@ -187,6 +195,24 @@ static void callback(shet_state_t *state, char *line, jsmntok_t *token, void *us
 	} else {
 		fprintf(stderr, "TEST ERROR: callback didn't receive result pointer!\n");
 	}
+}
+
+
+// A callback which returns its argument
+static void echo_callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
+	callback_result_t *result = (callback_result_t *)user_data;
+	if (result != NULL) {
+		result->state = state;
+		result->line = line;
+		result->token = token;
+		result->count++;
+	}
+	
+	// Return back the argument
+	char response[100];
+	strncpy(response, line + token[0].start, token[0].end - token[0].start);
+	response[token[0].end - token[0].start] = '\0';
+	shet_return(state, 0, response);
 }
 
 
@@ -848,6 +874,86 @@ bool test_return(void) {
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
+// Test actions
+////////////////////////////////////////////////////////////////////////////////
+
+
+bool test_make_action(void) {
+	RESET_TRANSMIT_CB();
+	shet_state_t state;
+	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	
+	deferred_t deferred1;
+	deferred_t deferred2;
+	callback_result_t result1;
+	callback_result_t result2;
+	result1.count = 0;
+	result2.count = 0;
+	
+	// Test that two actions can be independently called
+	shet_make_action(&state, "/test/action1",
+	                 &deferred1, echo_callback, &result1,
+	                 NULL, NULL, NULL, NULL);
+	shet_make_action(&state, "/test/action2",
+	                 &deferred2, echo_callback, &result2,
+	                 NULL, NULL, NULL, NULL);
+	
+	// Call each action with a null argument to ensure both can act independently
+	// and that null arguments work
+	char line1[] = "[0,\"docall\",\"/test/action1\"]";
+	shet_process_line(&state, line1, strlen(line1));
+	TASSERT_INT_EQUAL(result1.count, 1);
+	TASSERT_INT_EQUAL(result2.count, 0);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[]]");
+	
+	char line2[] = "[1,\"docall\",\"/test/action2\"]";
+	shet_process_line(&state, line2, strlen(line2));
+	TASSERT_INT_EQUAL(result1.count, 1);
+	TASSERT_INT_EQUAL(result2.count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,[]]");
+	
+	// Make sure actions can be removed
+	shet_remove_action(&state, "/test/action2", NULL, NULL, NULL, NULL);
+	char line3[] = "[2,\"docall\",\"/test/action2\"]";
+	shet_process_line(&state, line3, strlen(line3));
+	TASSERT_INT_EQUAL(result1.count, 1);
+	TASSERT_INT_EQUAL(result2.count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	
+	// Call with a single string argument
+	char line4[] = "[3,\"docall\",\"/test/action1\", \"just me\"]";
+	shet_process_line(&state, line4, strlen(line4));
+	TASSERT_INT_EQUAL(result1.count, 2);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"return\",0,[\"just me\"]]");
+	
+	// Call with a single non-string primitive argument
+	char line5[] = "[4,\"docall\",\"/test/action1\", true]";
+	shet_process_line(&state, line5, strlen(line5));
+	TASSERT_INT_EQUAL(result1.count, 3);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"return\",0,[true]]");
+	
+	// Call with a single compound argument
+	char line6[] = "[5,\"docall\",\"/test/action1\", [1,2,3]]";
+	shet_process_line(&state, line6, strlen(line6));
+	TASSERT_INT_EQUAL(result1.count, 4);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"return\",0,[[1,2,3]]]");
+	
+	// Call with multiple arguments
+	char line7[] = "[6,\"docall\",\"/test/action1\", 1,2,3]";
+	shet_process_line(&state, line7, strlen(line7));
+	TASSERT_INT_EQUAL(result1.count, 5);
+	TASSERT_INT_EQUAL(transmit_count, 10);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"return\",0,[1,2,3]]");
+	
+	return true;
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // World starts here
@@ -863,6 +969,7 @@ int main(int argc, char *argv[]) {
 		test_shet_register,
 		test_shet_cancel_deferred_and_shet_ping,
 		test_return,
+		test_make_action,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
