@@ -596,13 +596,16 @@ void shet_raise_event(shet_state_t *state,
  * @param event_callback Callback function called whenever the event fires.
  *                       This is given a (possibly empty) JSON array of values
  *                       indicating the value of the event. This function must
- *                       return success to SHET e.g. using shet_return.
+ *                       return success to SHET e.g. using shet_return. NULL if
+ *                       unused.
  * @param created_callback Callback function called whenever the event is
  *                         created in the SHET tree. This function must return
- *                         success to SHET e.g. using shet_return.
+ *                         success to SHET e.g. using shet_return. NULL if
+ *                         unused.
  * @param deleted_callback Callback function called whenever the event is
  *                         deleted in the SHET tree. This function must return
- *                         success to SHET e.g. using shet_return.
+ *                         success to SHET e.g. using shet_return. NULL if
+ *                         unused.
  * @param event_arg User-defined pointer to be passed to the event callbacks.
  * @param watch_deferred A pointer to a deferred_t struct responsible for
  *                       event watching callbacks. This struct must remain live

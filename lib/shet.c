@@ -161,25 +161,24 @@ static void process_return(shet_state_t *state, jsmntok_t *tokens)
 	
 	// We want to leave everything in a consistent state, as the callback might
 	// make another call to this lib, so get the info we need, "free" everything,
-	// *then* callback.  Ideally, we should 'return' the callback to be ran in the
-	// main loop.
+	// *then* callback.
 	
 	// Select either the success or fail callback (or fall-back on the 
-	shet_callback_t callback_fun = state->error_callback;
+	shet_callback_t callback_fun = NULL;
 	void *user_data = state->error_callback_data;
 	if (callback != NULL) {
-		user_data = callback->data.return_cb.user_data;
 		if (success == 0)
 			callback_fun = callback->data.return_cb.success_callback;
-		else if (success != 0) {
+		else if (success != 0)
 			callback_fun = callback->data.return_cb.error_callback;
-			// Fall back to default error callback.
-			if (callback_fun == NULL) {
-				callback_fun = state->error_callback;
-				user_data = state->error_callback_data;
-			}
-		}
+		user_data = callback->data.return_cb.user_data;
 		remove_deferred(state, callback);
+	}
+	
+	// Fall back to default error callback.
+	if (success != 0 && callback_fun == NULL) {
+		callback_fun = state->error_callback;
+		user_data = state->error_callback_data;
 	}
 	
 	// Run the callback if it's not null.
@@ -188,7 +187,7 @@ static void process_return(shet_state_t *state, jsmntok_t *tokens)
 }
 
 
-// Process an command from the server
+// Process a command from the server
 static void process_command(shet_state_t *state, jsmntok_t *tokens, command_callback_type_t type)
 {
 	size_t min_num_parts;
@@ -243,69 +242,87 @@ static void process_command(shet_state_t *state, jsmntok_t *tokens, command_call
 			callback = NULL;
 			break;
 	}
-	if (callback == NULL)
-		return;
 	
 	// Get the callback and user data.
-	shet_callback_t callback_fun;
-	switch (type) {
-		case EVENT_CCB:         callback_fun = callback->data.event_cb.event_callback; break;
-		case EVENT_DELETED_CCB: callback_fun = callback->data.event_cb.deleted_callback; break;
-		case EVENT_CREATED_CCB: callback_fun = callback->data.event_cb.created_callback; break;
-		case GET_PROP_CCB:      callback_fun = callback->data.prop_cb.get_callback; break;
-		case SET_PROP_CCB:      callback_fun = callback->data.prop_cb.set_callback; break;
-		case CALL_CCB:          callback_fun = callback->data.action_cb.callback; break;
-		default:                callback_fun = NULL; break;
-	}
-	void *user_data;
-	switch (type) {
-		case EVENT_CCB:
-		case EVENT_CREATED_CCB:
-		case EVENT_DELETED_CCB:
-			user_data = callback->data.event_cb.user_data;
-			break;
-		
-		case GET_PROP_CCB:
-		case SET_PROP_CCB:
-			user_data = callback->data.prop_cb.user_data;
-			break;
-		
-		case CALL_CCB:
-			user_data = callback->data.action_cb.user_data;
-			break;
-		
-		default:
-			user_data = NULL;
-			break;
+	shet_callback_t callback_fun = NULL;
+	if (callback != NULL) {
+		switch (type) {
+			case EVENT_CCB:         callback_fun = callback->data.event_cb.event_callback; break;
+			case EVENT_DELETED_CCB: callback_fun = callback->data.event_cb.deleted_callback; break;
+			case EVENT_CREATED_CCB: callback_fun = callback->data.event_cb.created_callback; break;
+			case GET_PROP_CCB:      callback_fun = callback->data.prop_cb.get_callback; break;
+			case SET_PROP_CCB:      callback_fun = callback->data.prop_cb.set_callback; break;
+			case CALL_CCB:          callback_fun = callback->data.action_cb.callback; break;
+			default:                callback_fun = NULL; break;
+		}
 	}
 	
-	
-	// Find the first argument (if one is present)
-	jsmntok_t *first_arg_token = &(tokens[4 + tokens[1].size]);
-	
-	// Truncate the array (remove the ID, command and path)
-	jsmntok_t *args_token = first_arg_token - 1;
-	*args_token = tokens[0];
-	args_token->size = tokens[0].size - 3;
-	if (args_token->size > 0) {
-		// If the array string now starts with a string, move the start to just
-		// before the opening quotes, otherwise move to just before the indicated
-		// start of the first element.
-		if (first_arg_token->type == JSMN_STRING)
-			args_token->start = first_arg_token->start - 2;
-		else
-			args_token->start = first_arg_token->start - 1;
+	if (callback_fun == NULL) {
+		// No callback function specified, generate an appropriate 
+		switch (type) {
+			case EVENT_CCB:
+			case EVENT_DELETED_CCB:
+			case EVENT_CREATED_CCB:
+				shet_return(state, 0, NULL);
+				break;
+			
+			case GET_PROP_CCB:
+			case SET_PROP_CCB:
+			case CALL_CCB:
+				shet_return(state, 1, "\"No callback handler registered!\"");
+				break;
+		}
 	} else {
-		// If the new array is empty, the array's first character is just before the
-		// closing bracket.
-		args_token->start = args_token->end - 2;
+		// Execute the user's callback function
+		void *user_data;
+		switch (type) {
+			case EVENT_CCB:
+			case EVENT_CREATED_CCB:
+			case EVENT_DELETED_CCB:
+				user_data = callback->data.event_cb.user_data;
+				break;
+			
+			case GET_PROP_CCB:
+			case SET_PROP_CCB:
+				user_data = callback->data.prop_cb.user_data;
+				break;
+			
+			case CALL_CCB:
+				user_data = callback->data.action_cb.user_data;
+				break;
+			
+			default:
+				user_data = NULL;
+				break;
+		}
+		
+		// Find the first argument (if one is present)
+		jsmntok_t *first_arg_token = &(tokens[4 + tokens[1].size]);
+		
+		// Truncate the array (remove the ID, command and path)
+		jsmntok_t *args_token = first_arg_token - 1;
+		*args_token = tokens[0];
+		args_token->size = tokens[0].size - 3;
+		if (args_token->size > 0) {
+			// If the array string now starts with a string, move the start to just
+			// before the opening quotes, otherwise move to just before the indicated
+			// start of the first element.
+			if (first_arg_token->type == JSMN_STRING)
+				args_token->start = first_arg_token->start - 2;
+			else
+				args_token->start = first_arg_token->start - 1;
+		} else {
+			// If the new array is empty, the array's first character is just before the
+			// closing bracket.
+			args_token->start = args_token->end - 2;
+		}
+		// Add the opening bracket. Note that this *may* corrupt the path argument but
+		// since it won't be used again, this isn't a problem.
+		state->line[args_token->start] = '[';
+		
+		if (callback_fun != NULL)
+			callback_fun(state, state->line, args_token, user_data);
 	}
-	// Add the opening bracket. Note that this *may* corrupt the path argument but
-	// since it won't be used again, this isn't a problem.
-	state->line[args_token->start] = '[';
-	
-	if (callback_fun != NULL)
-		callback_fun(state, state->line, args_token, user_data);
 }
 
 

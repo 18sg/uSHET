@@ -526,9 +526,9 @@ bool test_shet_set_error_callback(void) {
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
-	// Make sure nothing happens when an unknown return arrives without an error
-	// callback setup
-	char line1[] = "[0,\"return\",0,[1,2,3]]";
+	// Make sure nothing happens when an unknown (non-successful) return arrives
+	// without an error callback setup
+	char line1[] = "[0,\"return\",1,[1,2,3]]";
 	shet_process_line(&state, line1, strlen(line1));
 	
 	// Set up the error callback
@@ -536,11 +536,15 @@ bool test_shet_set_error_callback(void) {
 	result.count = 0;
 	shet_set_error_callback(&state, callback, &result);
 	
-	// Make sure the error came through
-	char line2[] = "[1,\"return\",0,[1,2,3]]";
+	// Make sure unhandled unsuccessful returns get caught
+	char line2[] = "[1,\"return\",1,[1,2,3]]";
 	shet_process_line(&state, line2, strlen(line2));
 	TASSERT_INT_EQUAL(result.count, 1);
 	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3]");
+	
+	char line3[] = "[1,\"return\",0,[3,2,1]]";
+	shet_process_line(&state, line3, strlen(line3));
+	TASSERT_INT_EQUAL(result.count, 1);
 	
 	return true;
 }
@@ -942,19 +946,21 @@ bool test_shet_make_action(void) {
 	
 	// Make sure actions can be removed
 	shet_remove_action(&state, "/test/action2", NULL, NULL, NULL, NULL);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmaction\",\"/test/action2\"]");
 	char line3[] = "[2,\"docall\",\"/test/action2\"]";
 	shet_process_line(&state, line3, strlen(line3));
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
-	TASSERT_INT_EQUAL(transmit_count, 6);
-	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmaction\",\"/test/action2\"]");
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"return\",1,\"No callback handler registered!\"]");
 	
 	// Call with a single string argument
 	char line4[] = "[3,\"docall\",\"/test/action1\", \"just me\"]";
 	shet_process_line(&state, line4, strlen(line4));
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[\"just me\"]");
-	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_INT_EQUAL(transmit_count, 8);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"return\",0,[\"just me\"]]");
 	
 	// Call with a single non-string primitive argument
@@ -962,7 +968,7 @@ bool test_shet_make_action(void) {
 	shet_process_line(&state, line5, strlen(line5));
 	TASSERT_INT_EQUAL(result1.count, 3);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[true]");
-	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_INT_EQUAL(transmit_count, 9);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"return\",0,[true]]");
 	
 	// Call with a single compound argument
@@ -970,7 +976,7 @@ bool test_shet_make_action(void) {
 	shet_process_line(&state, line6, strlen(line6));
 	TASSERT_INT_EQUAL(result1.count, 4);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[[1,2,3]]");
-	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_INT_EQUAL(transmit_count, 10);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"return\",0,[[1,2,3]]]");
 	
 	// Call with multiple arguments
@@ -978,7 +984,7 @@ bool test_shet_make_action(void) {
 	shet_process_line(&state, line7, strlen(line7));
 	TASSERT_INT_EQUAL(result1.count, 5);
 	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[1,2,3]");
-	TASSERT_INT_EQUAL(transmit_count, 10);
+	TASSERT_INT_EQUAL(transmit_count, 11);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"return\",0,[1,2,3]]");
 	
 	return true;
@@ -1115,7 +1121,8 @@ bool test_shet_make_prop(void) {
 	shet_process_line(&state, line6, strlen(line6));
 	TASSERT_INT_EQUAL(result1.count, 3);
 	TASSERT_INT_EQUAL(result2.count, 2);
-	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_INT_EQUAL(transmit_count, 10);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",1,\"No callback handler registered!\"]");
 	
 	return true;
 }
