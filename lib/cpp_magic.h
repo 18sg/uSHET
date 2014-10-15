@@ -6,6 +6,15 @@
  * Though the file name (quite validly) labels this as magic, there should be
  * enough documentation in the comments for a reader only casually familiar
  * with the CPP to be able to understand how everything works.
+ *
+ * The majority of the magic tricks used in this file are based on those
+ * described by pfultz2 in his "Cloak" library:
+ *
+ *    https://github.com/pfultz2/Cloak/wiki/C-Preprocessor-tricks,-tips,-and-idioms
+ *
+ * Major differences are a greater level of detailed explanation in this
+ * implementation and also a refusal to include any macros which require a O(N)
+ * macro definitions to handle O(N) arguments (with the exception of DEFERn).
  */
 
 #ifndef CPP_MAGIC_H
@@ -110,6 +119,9 @@
  * As with DEFER1 except here n additional passes are required for DEFERn.
  *
  * The mechanism is analogous.
+ *
+ * Note that there doesn't appear to be a way of combining DEFERn macros in
+ * order to achieve exponentially increasing defers e.g. as is done by EVAL.
  */
 #define DEFER2(id) id EMPTY EMPTY()()
 #define DEFER3(id) id EMPTY EMPTY EMPTY()()()
