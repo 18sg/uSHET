@@ -1,11 +1,26 @@
-#ifndef EZSHET_INTERNAL_H
-#define EZSHET_INTERNAL_H
+/**
+ * This header file contains a library of advanced C Pre-Processor (CPP) macros
+ * which implement various useful functions, such as iteration, in the
+ * pre-processor.
+ *
+ * Though the file name (quite validly) labels this as magic, there should be
+ * enough documentation in the comments for a reader only casually familiar
+ * with the CPP to be able to understand how everything works.
+ */
+
+#ifndef CPP_MAGIC_H
+#define CPP_MAGIC_H
 
 /**
- * Force the pre-processor to expand the macro a large number of times.
+ * Force the pre-processor to expand the macro a large number of times. Usage:
  *
- * This is ueseful when you have a macro which evaluates to a valid macro
- * expression, for example:
+ *   EVAL(expression)
+ *
+ * This is useful when you have a macro which evaluates to a valid macro
+ * expression which is not subsequently expanded in the same pass. A contrived,
+ * but easy to understand, example of such a macro follows. Note that though
+ * this example is contrived, this behaviour is abused to implement bounded
+ * recursion in macros such as FOR.
  *
  *   #define A(x) x+1
  *   #define EMPTY
@@ -16,32 +31,35 @@
  *
  * 1. It sees a macro "NOT_QUITE_RIGHT" and performs a single macro expansion
  *    pass on its arguments. Since the argument is "999" and this isn't a macro,
- *    this is a boring step and it results in "NOT_QUITE_RIGHT(999)", i.e. no
- *    change.
- * 2. It re-writes macro for its definition, substituting in arguments. In this
- *    case we get "A EMPTY (999)"
- * 3. The preprocessor runs a final pass of macro expansion on this yeilding "A
- *    (999)" by expanding "EMPTY" into "".
+ *    this is a boring step resulting in no change.
+ * 2. The NOT_QUITE_RIGHT macro is substituted for its definition giving "A
+ *    EMPTY() (x)".
+ * 3. The expander moves from left-to-right trying to expand the macro:
+ *    The first token, A, cannot be expanded since there are no brackets
+ *    immediately following it. The second token EMPTY(), however, can be
+ *    expanded (recursively in this manner) and is replaced with "".
+ * 4. Expansion continues from the start of the substituted test (which in this
+ *    case is just empty), and sees "(999)" but since no macro name is present,
+ *    nothing is done. This results in a final expansion of "A (999)".
  *
- * Unfortunately, this doesn't quite meet expectations since you may expect this
- * to in turn be expanded to "999+1". We can force the macro processor to make
- * another pass by abusing the first step of macro exapnsion: the preprocessor
- * handles arguments in their own pass. If we define a macro which does nothing
+ * Unfortunately, this doesn't quite meet expectations since you may expect that
+ * "A (999)" would have been expanded into "999+1". Unfortunately this requires
+ * a second expansion pass but luckily we can force the macro processor to make
+ * more passes by abusing the first step of macro expansion: the preprocessor
+ * expands arguments in their own pass. If we define a macro which does nothing
  * except produce its arguments e.g.:
  *
- *   #define DO_NOTHING(...) __VA_ARGS__
+ *   #define PASS_THROUGH(...) __VA_ARGS__
  *
- * We can now do "DO_NOTHING(NOT_QUITE_RIGHT(999))" causing "NOT_QUITE_RIGHT" to be
- * expanded to "A (999)" in its own pass thanks it it being an argument. Next,
- * when the second step occurrs, we just get "A (999)" again. In the final step,
- * the preprocessor does a pass over this finally expanding to "999+1" as we
- * always wanted.
+ * We can now do "PASS_THROUGH(NOT_QUITE_RIGHT(999))" causing "NOT_QUITE_RIGHT" to be
+ * expanded to "A (999)", as described above, when the arguments are expanded.
+ * Now when the body of PASS_THROUGH is expanded, "A (999)" gets expanded to
+ * "999+1".
  *
- * The EVAL defined below is essentially "DO_NOTHING(DO_NOTHING(DO_NOTHING(..."
- * which results in the preprocessor making a large number of passes. Given most
- * (useful) recursive macros we could write will terminate after only a few
- * levels of recursion, this should be sufficient for most programs. Still, true
- * recursion is still not possible!
+ * The EVAL defined below is essentially equivalent to a large nesting of
+ * "PASS_THROUGH(PASS_THROUGH(PASS_THROUGH(..." which results in the
+ * preprocessor making a large number of expansion passes over the given
+ * expression.
  */
 #define EVAL(...) EVAL1024(__VA_ARGS__)
 #define EVAL1024(...) EVAL512(EVAL512(__VA_ARGS__))
