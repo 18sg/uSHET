@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 #include "shet.h"
+#include "shet_json.h"
 
 #include "jsmn.h"
 
@@ -12,43 +13,6 @@
 #else
 #define DPRINTF(...)
 #endif
-
-////////////////////////////////////////////////////////////////////////////////
-// Assertions
-////////////////////////////////////////////////////////////////////////////////
-
-
-// Assert the type of a JSON object
-static bool assert_type(const jsmntok_t *token, jsmntype_t type)
-{
-	if (token->type != type)
-		DPRINTF("Expected token type %d, got %d.\n", type, token->type);
-	
-	return token->type == type;
-}
-
-
-// Assert that a JSON primitive is an int
-static bool assert_int(const char *line, const jsmntok_t *token)
-{
-	if (token->type != JSMN_PRIMITIVE) {
-		DPRINTF("Expected token type %d, got %d.\n", JSMN_PRIMITIVE, token->type);
-		return false;
-	}
-	
-	if (token->end - token->start <= 0) {
-		DPRINTF("Integers cannot be zero-length strings.\n");
-		return false;
-	}
-	
-	char first_char = line[token->start];
-	if (!(first_char == '-' || (first_char >= '0' && first_char <= '9'))) {
-		DPRINTF("Integers don't start with '%c'.\n", first_char);
-		return false;
-	}
-	
-	return true;
-}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -136,25 +100,34 @@ static shet_deferred_t *find_named_cb(shet_state_t *state, const char *name, she
 ////////////////////////////////////////////////////////////////////////////////
 
 // Deal with a shet 'return' command, calling the appropriate callback.
-static shet_processing_error_t process_return(shet_state_t *state, jsmntok_t *tokens)
+static shet_processing_error_t process_return(shet_state_t *state, shet_json_t json)
 {
-	if (tokens[0].size != 4) {
+	if (json.token[0].size != 4) {
 		DPRINTF("Return messages should be of length 4\n");
 		return SHET_PROC_MALFORMED_RETURN;
 	}
 	
-	// Requests sent by uSHET always use integer IDs. Note this string is always a
-	// substring surrounded by non-numbers so atoi is safe.
-	if (!assert_int(state->line, &(tokens[1]))) return SHET_PROC_MALFORMED_RETURN;
-	int id = atoi(state->line + tokens[1].start);
+	// Requests sent by uSHET always use integer IDs.
+	shet_json_t id_json;
+	id_json.line = json.line;
+	id_json.token = json.token + 1;
+	if (!SHET_JSON_IS_TYPE(id_json, SHET_INT))
+		return SHET_PROC_MALFORMED_RETURN;
+	int id = SHET_PARSE_JSON_VALUE(id_json, SHET_INT);
 	
 	// The success/fail value should be an int. Note this string is always a
 	// substring surrounded by non-numbers so atoi is safe.
-	if (!assert_int(state->line, &(tokens[3]))) return SHET_PROC_MALFORMED_RETURN;
-	int success = atoi(state->line + tokens[3].start);
+	shet_json_t success_json;
+	success_json.line = json.line;
+	success_json.token = json.token + 3;
+	if (!SHET_JSON_IS_TYPE(success_json, SHET_INT))
+		return SHET_PROC_MALFORMED_RETURN;
+	int success = SHET_PARSE_JSON_VALUE(success_json, SHET_INT);
 	
 	// The returned value can be any JSON object
-	jsmntok_t *value_token = tokens+4;
+	shet_json_t value_json;
+	value_json.line = json.line;
+	value_json.token = json.token+4;
 	
 	// Find the right callback.
 	shet_deferred_t *callback = find_return_cb(state, id);
@@ -183,21 +156,21 @@ static shet_processing_error_t process_return(shet_state_t *state, jsmntok_t *to
 	
 	// Run the callback if it's not null.
 	if (callback_fun != NULL)
-		callback_fun(state, state->line, value_token, user_data);
+		callback_fun(state, value_json, user_data);
 	
 	return SHET_PROC_OK;
 }
 
 
 // Process a command from the server
-static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *tokens, command_callback_type_t type)
+static shet_processing_error_t process_command(shet_state_t *state, shet_json_t json, command_callback_type_t type)
 {
 	size_t min_num_parts;
 	switch (type) {
 		case SHET_EVENT_DELETED_CCB:
 		case SHET_EVENT_CREATED_CCB:
 		case SHET_GET_PROP_CCB:
-			if (tokens[0].size != 3) {
+			if (json.token[0].size != 3) {
 				DPRINTF("Command accepts no arguments.\n");
 				return SHET_PROC_MALFORMED_ARGUMENTS;
 			} else {
@@ -205,7 +178,7 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 			}
 		
 		case SHET_SET_PROP_CCB:
-			if (tokens[0].size != 4) {
+			if (json.token[0].size != 4) {
 				DPRINTF("Command accepts exactly one argument.\n");
 				return SHET_PROC_MALFORMED_ARGUMENTS;
 			} else {
@@ -214,7 +187,7 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 		
 		case SHET_EVENT_CCB:
 		case SHET_CALL_CCB:
-			if (tokens[0].size < 3) {
+			if (json.token[0].size < 3) {
 				DPRINTF("Commands must have at least 3 components.\n");
 				return SHET_PROC_MALFORMED_ARGUMENTS;
 			} else {
@@ -225,12 +198,13 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 			return SHET_PROC_MALFORMED_ARGUMENTS;
 	}
 	
-	// Get the name. It is safe to clobber the char after the name since it will
-	// be a pair of quotes as part of the JSON syntax.
-	jsmntok_t *name_token = &(tokens[3 + tokens[1].size]);
-	if (!assert_type(name_token, JSMN_STRING)) return SHET_PROC_MALFORMED_COMMAND;
-	const char *name = state->line + name_token->start;
-	state->line[name_token->end] = '\0';
+	// Get the path name.
+	shet_json_t name_json;
+	name_json.line = json.line;
+	name_json.token = &(json.token[3 + json.token[1].size]);
+	if (!SHET_JSON_IS_TYPE(name_json, SHET_STRING))
+		return SHET_PROC_MALFORMED_COMMAND;
+	const char *name = SHET_PARSE_JSON_VALUE(name_json, SHET_STRING);
 	
 	// Find the callback for this event.
 	shet_deferred_t *callback;
@@ -311,31 +285,33 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 		}
 		
 		// Find the first argument (if one is present)
-		jsmntok_t *first_arg_token = &(tokens[4 + tokens[1].size]);
+		jsmntok_t *first_arg_token = &(json.token[4 + json.token[1].size]);
 		
 		// Truncate the array (remove the ID, command and path)
-		jsmntok_t *args_token = first_arg_token - 1;
-		*args_token = tokens[0];
-		args_token->size = tokens[0].size - 3;
-		if (args_token->size > 0) {
+		shet_json_t args_json;
+		args_json.line = json.line;
+		args_json.token = first_arg_token - 1;
+		*args_json.token = json.token[0];
+		args_json.token->size = json.token[0].size - 3;
+		if (args_json.token->size > 0) {
 			// If the array string now starts with a string, move the start to just
 			// before the opening quotes, otherwise move to just before the indicated
 			// start of the first element.
 			if (first_arg_token->type == JSMN_STRING)
-				args_token->start = first_arg_token->start - 2;
+				args_json.token->start = first_arg_token->start - 2;
 			else
-				args_token->start = first_arg_token->start - 1;
+				args_json.token->start = first_arg_token->start - 1;
 		} else {
 			// If the new array is empty, the array's first character is just before the
 			// closing bracket.
-			args_token->start = args_token->end - 2;
+			args_json.token->start = args_json.token->end - 2;
 		}
 		// Add the opening bracket. Note that this *may* corrupt the path argument but
 		// since it won't be used again, this isn't a problem.
-		state->line[args_token->start] = '[';
+		args_json.line[args_json.token->start] = '[';
 		
 		if (callback_fun != NULL)
-			callback_fun(state, state->line, args_token, user_data);
+			callback_fun(state, args_json, user_data);
 		
 		return SHET_PROC_OK;
 	}
@@ -343,39 +319,44 @@ static shet_processing_error_t process_command(shet_state_t *state, jsmntok_t *t
 
 
 // Process a message from shet.
-static shet_processing_error_t process_message(shet_state_t *state, jsmntok_t *tokens)
+static shet_processing_error_t process_message(shet_state_t *state, shet_json_t json)
 {
-	if (!assert_type(&(tokens[0]), JSMN_ARRAY)) return SHET_PROC_MALFORMED_COMMAND;
-	if (tokens[0].size < 2) {
+	
+	if (!SHET_JSON_IS_TYPE(json, SHET_ARRAY))
+		return SHET_PROC_MALFORMED_COMMAND;
+	
+	if (json.token[0].size < 2) {
 		DPRINTF("Command too short.\n");
 		return SHET_PROC_MALFORMED_COMMAND;
 	}
 	
 	// Record the ID token
-	state->recv_id = &(tokens[1]);
+	state->recv_id.line  = json.line;
+	state->recv_id.token = json.token + 1;
 	
-	// Note that the command is at least followed by the closing bracket and if
-	// not a comma and so nulling out the character following it is safe.
-	jsmntok_t *command_token = &(tokens[2 + tokens[1].size]);
-	if (!assert_type(command_token, JSMN_STRING)) return SHET_PROC_MALFORMED_COMMAND;
-	const char *command = state->line + command_token->start;
-	state->line[command_token->end] = '\0';
+	// Get the command
+	shet_json_t command_json;
+	command_json.line = json.line;
+	command_json.token = json.token + 2 + json.token[1].size;
+	if (!SHET_JSON_IS_TYPE(command_json, SHET_STRING))
+		return SHET_PROC_MALFORMED_COMMAND;
+	const char *command = SHET_PARSE_JSON_VALUE(command_json, SHET_STRING);
 	
-	// Extract args in indiviaual handling functions -- too much effort to do here.
+	// Handle commands separately
 	if (strcmp(command, "return") == 0)
-		return process_return(state, tokens);
+		return process_return(state, json);
 	else if (strcmp(command, "event") == 0)
-		return process_command(state, tokens, SHET_EVENT_CCB);
+		return process_command(state, json, SHET_EVENT_CCB);
 	else if (strcmp(command, "eventdeleted") == 0)
-		return process_command(state, tokens, SHET_EVENT_DELETED_CCB);
+		return process_command(state, json, SHET_EVENT_DELETED_CCB);
 	else if (strcmp(command, "eventcreated") == 0)
-		return process_command(state, tokens, SHET_EVENT_CREATED_CCB);
+		return process_command(state, json, SHET_EVENT_CREATED_CCB);
 	else if (strcmp(command, "getprop") == 0)
-		return process_command(state, tokens, SHET_GET_PROP_CCB);
+		return process_command(state, json, SHET_GET_PROP_CCB);
 	else if (strcmp(command, "setprop") == 0)
-		return process_command(state, tokens, SHET_SET_PROP_CCB);
+		return process_command(state, json, SHET_SET_PROP_CCB);
 	else if (strcmp(command, "docall") == 0)
-		return process_command(state, tokens, SHET_CALL_CCB);
+		return process_command(state, json, SHET_CALL_CCB);
 	else {
 		DPRINTF("Unknown command: \"%s\"\n", command);
 		shet_return(state, 1, "Unknown command.");
@@ -465,36 +446,38 @@ shet_processing_error_t shet_process_line(shet_state_t *state, char *line, size_
 		return SHET_PROC_INVALID_JSON;
 	}
 	
-	state->line = line;
+	shet_json_t json;
+	json.line  = line;
+	json.token = state->tokens;
 	
 	jsmn_parser p;
 	jsmn_init(&p);
 	
 	jsmnerr_t e = jsmn_parse( &p
-	                        , state->line
+	                        , json.line
 	                        , line_length
-	                        , state->tokens
+	                        , json.token
 	                        , SHET_NUM_TOKENS
 	                        );
 	switch (e) {
 		case JSMN_ERROR_NOMEM:
 			DPRINTF("Out of JSON tokens in shet_process_line: %.*s\n",
-			        line_length, state->line);
+			        line_length, json.line);
 			return SHET_PROC_ERR_OUT_OF_TOKENS;
 		
 		case JSMN_ERROR_INVAL:
 			DPRINTF("Invalid char in JSON string in shet_process_line: %.*s\n",
-			        line_length, state->line);
+			        line_length, json.line);
 			return SHET_PROC_INVALID_JSON;
 		
 		case JSMN_ERROR_PART:
 			DPRINTF("Incomplete JSON string in shet_process_line: %.*s.\n",
-			        line_length, state->line);
+			        line_length, json.line);
 			return SHET_PROC_INVALID_JSON;
 		
 		default:
 			if ((int)e > 0) {
-				return process_message(state, state->tokens);
+				return process_message(state, json);
 			} else {
 				return SHET_PROC_INVALID_JSON;
 			}
@@ -600,14 +583,14 @@ const char *shet_get_return_id(shet_state_t *state)
 	// comma) with the null. Also, note that string start/ends must be extended to
 	// include quotes. Other types start & end already include their surrounding
 	// brackets etc.
-	if (state->recv_id->type == JSMN_STRING) {
-		state->line[--(state->recv_id->start)] = '\"';
-		state->line[state->recv_id->end++] = '\"';
-		state->line[state->recv_id->end] = '\0';
-		return state->line + state->recv_id->start;
+	if (state->recv_id.token->type == JSMN_STRING) {
+		state->recv_id.line[--(state->recv_id.token->start)] = '\"';
+		state->recv_id.line[state->recv_id.token->end++] = '\"';
+		state->recv_id.line[state->recv_id.token->end] = '\0';
+		return state->recv_id.line + state->recv_id.token->start;
 	} else {
-		state->line[state->recv_id->end] = '\0';
-		return state->line + state->recv_id->start;
+		state->recv_id.line[state->recv_id.token->end] = '\0';
+		return state->recv_id.line + state->recv_id.token->start;
 	}
 }
 

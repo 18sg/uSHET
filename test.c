@@ -82,9 +82,13 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 } } while (0)
 
 // Compare two JSON strings given as a set of tokens and assert that they are
-// equivilent. If they are not, prints the two strings along with an indicator
+// equivalent. If they are not, prints the two strings along with an indicator
 // pointing at the first non-matching parts.
-#define TASSERT_JSON_EQUAL_TOK_TOK(sa,ta,sb,tb) do { \
+#define TASSERT_JSON_EQUAL_TOK_TOK(ja,jb) do { \
+	char *sa = ja.line;\
+	jsmntok_t *ta = ja.token;\
+	char *sb = jb.line;\
+	jsmntok_t *tb = jb.token;\
 	TASSERT((sa) != NULL);\
 	TASSERT((ta) != NULL);\
 	TASSERT((sb) != NULL);\
@@ -124,18 +128,23 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 
 // Compare two JSON strings the first given as a string and token and the other
 // as a string and assert that they are equivilent.
-#define TASSERT_JSON_EQUAL_TOK_STR(sa,ta,sb) do { \
+#define TASSERT_JSON_EQUAL_TOK_STR(ja,sb) do { \
 	jsmn_parser p; \
 	jsmn_init(&p); \
 	jsmntok_t tb[100]; \
-	jsmnerr_t e = jsmn_parse(&p, sb, strlen(sb), \
+	jsmnerr_t e = jsmn_parse(&p, (sb), strlen((sb)), \
 	                         tb, 100); \
 	if (e <= 0) { \
 		fprintf(stderr, "TASSERT_JSON_EQUAL Could not parse JSON: %s:%s:%d: %s\n",\
-		        __FILE__,__func__,__LINE__,sa); \
+		        __FILE__,__func__,__LINE__,(sb)); \
 		return false; \
 	} \
-	TASSERT_JSON_EQUAL_TOK_TOK(sa, ta, sb, tb);\
+	shet_json_t jb; \
+	/* XXX: Cast off the const for shet_json_t. This macro is known not to modify
+	 * the string. */ \
+	jb.line = (char *)(sb); \
+	jb.token = tb; \
+	TASSERT_JSON_EQUAL_TOK_TOK((ja), jb);\
 } while (0)
 
 
@@ -144,14 +153,19 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	jsmn_parser p; \
 	jsmn_init(&p); \
 	jsmntok_t ta[100]; \
-	jsmnerr_t e = jsmn_parse(&p, sa, strlen(sa), \
+	jsmnerr_t e = jsmn_parse(&p, (sa), strlen((sa)), \
 	                         ta, 100); \
 	if (e <= 0) { \
 		fprintf(stderr, "TASSERT_JSON_EQUAL Could not parse JSON: %s:%s:%d: %s\n",\
-		        __FILE__,__func__,__LINE__,sa); \
+		        __FILE__,__func__,__LINE__,(sa)); \
 		return false; \
 	} \
-	TASSERT_JSON_EQUAL_TOK_STR(sa, ta, sb);\
+	shet_json_t ja; \
+	/* XXX: Cast off the const for shet_json_t. This macro is known not to modify
+	 * the string. */ \
+	ja.line = (char *)(sa); \
+	ja.token = ta; \
+	TASSERT_JSON_EQUAL_TOK_STR(ja, (sb));\
 } while (0)
 
 
@@ -184,18 +198,16 @@ static void transmit_cb(const char *data, void *user_data) {
 // callback_result_t structure pointed to by the user variable.
 typedef struct {
 	shet_state_t *state;
-	char *line;
-	jsmntok_t *token;
+	shet_json_t json;
 	int count;
 	const char *return_value;
 } callback_result_t;
 
-static void callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
+static void callback(shet_state_t *state, shet_json_t json, void *user_data) {
 	callback_result_t *result = (callback_result_t *)user_data;
 	if (result != NULL) {
 		result->state = state;
-		result->line = line;
-		result->token = token;
+		result->json = json;
 		result->count++;
 	} else {
 		fprintf(stderr, "TEST ERROR: callback didn't receive result pointer!\n");
@@ -204,20 +216,20 @@ static void callback(shet_state_t *state, char *line, jsmntok_t *token, void *us
 
 
 // A callback like the above but which returns its argument
-static void echo_callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
-	callback(state, line, token, user_data);
+static void echo_callback(shet_state_t *state, shet_json_t json, void *user_data) {
+	callback(state, json, user_data);
 	
 	// Return back the argument
 	char response[100];
-	strncpy(response, line + token[0].start, token[0].end - token[0].start);
-	response[token[0].end - token[0].start] = '\0';
+	strncpy(response, json.line + json.token[0].start, json.token[0].end - json.token[0].start);
+	response[json.token[0].end - json.token[0].start] = '\0';
 	shet_return(state, 0, response);
 }
 
 
 // A callback like the above but which returns success and returns a null value
-static void success_callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
-	callback(state, line, token, user_data);
+static void success_callback(shet_state_t *state, shet_json_t json, void *user_data) {
+	callback(state, json, user_data);
 	
 	shet_return(state, 0, "null");
 }
@@ -225,18 +237,18 @@ static void success_callback(shet_state_t *state, char *line, jsmntok_t *token, 
 
 // A callback like the above but which returns success and the value in
 // the return_value field of callback_result_t.
-static void const_callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
-	callback(state, line, token, user_data);
+static void const_callback(shet_state_t *state, shet_json_t json, void *user_data) {
+	callback(state, json, user_data);
 	
 	shet_return(state, 0, ((callback_result_t *)user_data)->return_value);
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
-// Test token type assertions
+// Test token type checking
 ////////////////////////////////////////////////////////////////////////////////
 
-bool test_assert_int(void) {
+bool test_SHET_JSON_IS_TYPE(void) {
 	// Make sure that the function can distinguish between primitives which are
 	// and are not integers
 	char *strings[] = {
@@ -246,11 +258,30 @@ bool test_assert_int(void) {
 		"true",
 		"false",
 		"null",
+		"\"str\"",
 		"[]",
 		"{}",
 	};
+	enum {
+		SHET_INT = 0,
+		SHET_FLOAT = 0,
+		SHET_BOOL,
+		SHET_NULL,
+		SHET_STRING,
+		SHET_ARRAY,
+		SHET_OBJECT,
+	} types[] = {
+		SHET_INT,
+		SHET_INT,
+		SHET_INT,
+		SHET_BOOL,
+		SHET_BOOL,
+		SHET_NULL,
+		SHET_STRING,
+		SHET_ARRAY,
+		SHET_OBJECT,
+	};
 	size_t num_strings = sizeof(strings)/sizeof(char *);
-	size_t num_valid_ints = 3;
 	
 	for (int i = 0; i < num_strings; i++) {
 		jsmn_parser p;
@@ -261,13 +292,159 @@ bool test_assert_int(void) {
 		                        , strings[i]
 		                        , strlen(strings[i])
 		                        , tokens
-		                        , SHET_NUM_TOKENS
+		                        , 4
 		                        );
 		// Make sure the string tokenzied successfully
 		TASSERT(e >= 1);
 		
-		// Check the assert
-		TASSERT(assert_int(strings[i], tokens) == (i < num_valid_ints));
+		shet_json_t json;
+		json.line = strings[i];
+		json.token = tokens;
+		
+		// Check the types
+		if (types[i] == SHET_INT) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_INT));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_INT));
+		
+		if (types[i] == SHET_BOOL) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_BOOL));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_BOOL));
+		
+		if (types[i] == SHET_NULL) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_NULL));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_NULL));
+		
+		if (types[i] == SHET_STRING) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_STRING));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_STRING));
+		
+		if (types[i] == SHET_ARRAY) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_ARRAY));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_ARRAY));
+		
+		if (types[i] == SHET_OBJECT) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_OBJECT));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_OBJECT));
+	}
+	
+	return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Test token type conversion
+////////////////////////////////////////////////////////////////////////////////
+
+bool test_SHET_PARSE_JSON_VALUE_INT(void) {
+	char *json_ints[] = {"[0]", "[123]", "[-1]", "[+1]"};
+	int      c_ints[] = {  0,     123,     -1,     +1 };
+	size_t num = sizeof(c_ints)/sizeof(int);
+	
+	for (int i = 0; i < num; i++) {
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmntok_t tokens[4];
+		
+		jsmnerr_t e = jsmn_parse( &p
+		                        , json_ints[i]
+		                        , strlen(json_ints[i])
+		                        , tokens
+		                        , 4
+		                        );
+		TASSERT(e == 2);
+		
+		shet_json_t json;
+		json.line = json_ints[i];
+		json.token = tokens + 1;
+		TASSERT_INT_EQUAL(SHET_PARSE_JSON_VALUE(json, SHET_INT), c_ints[i]);
+	}
+	
+	return true;
+}
+
+bool test_SHET_PARSE_JSON_VALUE_FLOAT(void) {
+	char *json_floats[] = {"[0]", "[1.5]", "[-1.5]", "[+1.5]", "[1e7]"};
+	double   c_floats[] = { 0.0,    1.5,     -1.5,     +1.5  ,   1e7};
+	size_t num = sizeof(c_floats)/sizeof(double);
+	
+	for (int i = 0; i < num; i++) {
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmntok_t tokens[4];
+		
+		jsmnerr_t e = jsmn_parse( &p
+		                        , json_floats[i]
+		                        , strlen(json_floats[i])
+		                        , tokens
+		                        , 4
+		                        );
+		TASSERT(e == 2);
+		
+		shet_json_t json;
+		json.line = json_floats[i];
+		json.token = tokens + 1;
+		TASSERT(SHET_PARSE_JSON_VALUE(json, SHET_FLOAT) == c_floats[i]);
+	}
+	
+	return true;
+}
+
+bool test_SHET_PARSE_JSON_VALUE_BOOL(void) {
+	char *json_bools[] = {"[true]", "[false]"};
+	bool     c_bools[] = {  true,     false};
+	size_t num = sizeof(c_bools)/sizeof(bool);
+	
+	for (int i = 0; i < num; i++) {
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmntok_t tokens[4];
+		
+		jsmnerr_t e = jsmn_parse( &p
+		                        , json_bools[i]
+		                        , strlen(json_bools[i])
+		                        , tokens
+		                        , 4
+		                        );
+		TASSERT(e == 2);
+		
+		shet_json_t json;
+		json.line = json_bools[i];
+		json.token = tokens + 1;
+		TASSERT(SHET_PARSE_JSON_VALUE(json, SHET_BOOL) == c_bools[i]);
+	}
+	
+	return true;
+}
+
+bool test_SHET_PARSE_JSON_VALUE_STRING(void) {
+	char s0[] = "[\"\"]";
+	char s1[] = "[\"I am a magical string!\"]";
+	char *json_strings[] = {s0,s1};
+	char    *c_strings[] = {"", "I am a magical string!"};
+	size_t num = sizeof(c_strings)/sizeof(char *);
+	
+	for (int i = 0; i < num; i++) {
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmntok_t tokens[4];
+		
+		jsmnerr_t e = jsmn_parse( &p
+		                        , json_strings[i]
+		                        , strlen(json_strings[i])
+		                        , tokens
+		                        , 4
+		                        );
+		TASSERT(e == 2);
+		
+		shet_json_t json;
+		json.line = json_strings[i];
+		json.token = tokens + 1;
+		TASSERT(strcmp(SHET_PARSE_JSON_VALUE(json, SHET_STRING), c_strings[i]) == 0);
 	}
 	
 	return true;
@@ -322,7 +499,7 @@ bool test_send_command(void) {
 	char response[] = "[5, \"return\", 0, [1,2,3,4]]";
 	TASSERT(shet_process_line(&state, response, strlen(response)) == SHET_PROC_OK);
 	TASSERT(result.count == 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3,4]");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "[1,2,3,4]");
 	
 	return true;
 }
@@ -611,7 +788,7 @@ bool test_shet_set_error_callback(void) {
 	char line2[] = "[1,\"return\",1,[1,2,3]]";
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "[1,2,3]");
 	
 	char line3[] = "[1,\"return\",0,[3,2,1]]";
 	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
@@ -721,7 +898,7 @@ bool test_shet_register(void) {
 	}
 	
 	// Callback for "make" functions and the like
-	void make(shet_state_t *state, char *data, jsmntok_t *token, void *user_data) {
+	void make(shet_state_t *state, shet_json_t json, void *user_data) {
 		size_t i = (const char **)user_data - paths;
 		cb_counts[i]++;
 	}
@@ -878,7 +1055,7 @@ bool test_shet_cancel_deferred_and_shet_ping(void) {
 	TASSERT(shet_process_line(&state, response1, strlen(response1)) ==
 	SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3,{1:2,3:4}]");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "[1,2,3,{1:2,3:4}]");
 	
 	// Send a second ping
 	shet_ping(&state, "[3,2,1]",
@@ -905,18 +1082,18 @@ bool test_return(void) {
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
 	// A function which immediately returns nothing
-	void return_null(shet_state_t *state, char *line, jsmntok_t *tokens, void *user_data) {
+	void return_null(shet_state_t *state, shet_json_t json, void *user_data) {
 		shet_return(state, 0, NULL);
 	}
 	
 	// A function which immediately returns a value
-	void return_value(shet_state_t *state, char *line, jsmntok_t *tokens, void *user_data) {
+	void return_value(shet_state_t *state, shet_json_t json, void *user_data) {
 		shet_return(state, 0, "[1,2,3]");
 	}
 	
 	// A function which doesn't respond but simply copies down the ID
 	char return_id[100];
-	void return_later(shet_state_t *state, char *line, jsmntok_t *tokens, void *user_data) {
+	void return_later(shet_state_t *state, shet_json_t json, void *user_data) {
 		strcpy(return_id, shet_get_return_id(state));
 	}
 	
@@ -1004,7 +1181,7 @@ bool test_shet_make_action(void) {
 	char line1[] = "[0,\"docall\",\"/test/action1\"]";
 	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[]");
 	TASSERT_INT_EQUAL(result2.count, 0);
 	TASSERT_INT_EQUAL(transmit_count, 4);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[]]");
@@ -1013,7 +1190,7 @@ bool test_shet_make_action(void) {
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[]");
 	TASSERT_INT_EQUAL(transmit_count, 5);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,[]]");
 	
@@ -1032,7 +1209,7 @@ bool test_shet_make_action(void) {
 	char line4[] = "[3,\"docall\",\"/test/action1\", \"just me\"]";
 	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[\"just me\"]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[\"just me\"]");
 	TASSERT_INT_EQUAL(transmit_count, 8);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"return\",0,[\"just me\"]]");
 	
@@ -1040,7 +1217,7 @@ bool test_shet_make_action(void) {
 	char line5[] = "[4,\"docall\",\"/test/action1\", true]";
 	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 3);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[true]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[true]");
 	TASSERT_INT_EQUAL(transmit_count, 9);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"return\",0,[true]]");
 	
@@ -1048,7 +1225,7 @@ bool test_shet_make_action(void) {
 	char line6[] = "[5,\"docall\",\"/test/action1\", [1,2,3]]";
 	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 4);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[[1,2,3]]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[[1,2,3]]");
 	TASSERT_INT_EQUAL(transmit_count, 10);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"return\",0,[[1,2,3]]]");
 	
@@ -1056,7 +1233,7 @@ bool test_shet_make_action(void) {
 	char line7[] = "[6,\"docall\",\"/test/action1\", 1,2,3]";
 	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 5);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[1,2,3]");
 	TASSERT_INT_EQUAL(transmit_count, 11);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"return\",0,[1,2,3]]");
 	
@@ -1152,7 +1329,7 @@ bool test_shet_make_prop(void) {
 	char line1[] = "[0,\"setprop\",\"/test/prop1\",123]";
 	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[123]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[123]");
 	TASSERT_INT_EQUAL(result2.count, 0);
 	TASSERT_INT_EQUAL(transmit_count, 4);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,null]");
@@ -1161,7 +1338,7 @@ bool test_shet_make_prop(void) {
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[321]");
+	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[321]");
 	TASSERT_INT_EQUAL(transmit_count, 5);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
 	
@@ -1169,7 +1346,7 @@ bool test_shet_make_prop(void) {
 	char line3[] = "[0,\"getprop\",\"/test/prop1\"]";
 	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[]");
 	TASSERT_INT_EQUAL(result2.count, 1);
 	TASSERT_INT_EQUAL(transmit_count, 6);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[1,2,3]]");
@@ -1178,7 +1355,7 @@ bool test_shet_make_prop(void) {
 	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[]");
 	TASSERT_INT_EQUAL(transmit_count, 7);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,[3,2,1]]");
 	
@@ -1191,7 +1368,7 @@ bool test_shet_make_prop(void) {
 	char line5[] = "[0,\"getprop\",\"/test/prop1\"]";
 	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 3);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[]");
 	TASSERT_INT_EQUAL(result2.count, 2);
 	TASSERT_INT_EQUAL(transmit_count, 9);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[1,2,3]]");
@@ -1227,7 +1404,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	char line1[] = "[1,\"return\",0,[1,2,3]]";
 	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "[1,2,3]");
 	
 	// Test set
 	shet_set_prop(&state, "/test/set", "[3,2,1]",
@@ -1239,7 +1416,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	char line2[] = "[2,\"return\",0,null]";
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "null");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "null");
 	
 	// Test that error conditions work
 	shet_set_prop(&state, "/test/set", "[9,9,9]",
@@ -1249,7 +1426,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	char line3[] = "[3,\"return\",1,\"fail\"]";
 	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 3);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "\"fail\"");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "\"fail\"");
 	
 	return true;
 }
@@ -1326,14 +1503,14 @@ bool test_shet_watch_event(void) {
 	char line1[] = "[0,\"event\",\"/test/event1\"]";
 	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[]");
 	TASSERT_INT_EQUAL(result2.count, 0);
 	
 	char line2[] = "[1,\"event\",\"/test/event2\"]";
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[]");
 	
 	// Make sure that we can ignore just one
 	shet_ignore_event(&state, "/test/event2", NULL, NULL, NULL, NULL);
@@ -1344,7 +1521,7 @@ bool test_shet_watch_event(void) {
 	char line3[] = "[2,\"event\",\"/test/event1\", 1,2,3]";
 	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[1,2,3]");
 	TASSERT_INT_EQUAL(result2.count, 1);
 	
 	// And that the ignored one doesn't...
@@ -1362,7 +1539,7 @@ bool test_shet_watch_event(void) {
 	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[]");
 	
 	// And that we can receive eventdeleted
 	shet_ignore_event(&state, "/test/event3", NULL, NULL, NULL, NULL);
@@ -1374,7 +1551,7 @@ bool test_shet_watch_event(void) {
 	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 3);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[]");
 	
 	return true;
 }
@@ -1385,7 +1562,11 @@ bool test_shet_watch_event(void) {
 
 int main(int argc, char *argv[]) {
 	bool (*tests[])(void) = {
-		test_assert_int,
+		test_SHET_PARSE_JSON_VALUE_INT,
+		test_SHET_PARSE_JSON_VALUE_FLOAT,
+		test_SHET_PARSE_JSON_VALUE_BOOL,
+		test_SHET_PARSE_JSON_VALUE_STRING,
+		test_SHET_JSON_IS_TYPE,
 		test_deferred_utilities,
 		test_shet_state_init,
 		test_shet_process_line_errors,

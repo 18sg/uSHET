@@ -67,21 +67,33 @@ typedef struct shet_event shet_event_t;
 
 
 /**
+ * A tokenised JSON value.
+ */
+typedef struct {
+	// The underlying JSON string. Users should not rely on the whole of this
+	// string being well formed and should only access the parts of it indicated
+	// by the supplied token.
+	char      *line;
+	
+	// The JSMN token for the JSON value passed. This token is part of an array of
+	// tokens such that if this token refers to an array or object, the first
+	// element of the array (or first key in the object) will be at token[1] and
+	// so on.
+	jsmntok_t *token;
+} shet_json_t;
+
+
+
+/**
  * All callbacks should be of this type.
  *
  * @param state The SHET state object associated with the callback
- * @param json A string containing relevant JSON sent to the callback (if
- *             applicable). Note that users should not read areas of the
- *             string not referred to by the supplied jsmn token since they may
- *             be mangled.
- * @param token Pointer to the first token in an array of jsmn tokens describing
- *              the JSON passed to the callback.
+ * @param json The JSON provided to the user.
  * @param user_data A user-defined pointer chosen when the callback was
  *                  registered.
  */
 typedef void (*shet_callback_t)(shet_state_t *state,
-                                char *json,
-                                jsmntok_t *token,
+                                shet_json_t json,
                                 void *user_data);
 
 

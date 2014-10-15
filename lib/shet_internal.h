@@ -80,12 +80,8 @@ struct shet_state {
 	// Next ID to use when sending a command
 	int next_id;
 	
-	// Pointer to the string containing the last command received
-	char *line;
-	
-	// The token defining the ID of the last command received. (Used for
-	// returning).
-	jsmntok_t *recv_id;
+	// The JSON return ID of the last command received. (Used for returning).
+	shet_json_t recv_id;
 	
 	// Linked lists of registered callback deferreds and event registrations
 	shet_deferred_t *callbacks;
