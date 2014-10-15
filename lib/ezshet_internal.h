@@ -56,123 +56,217 @@
 #define EVAL2(...) EVAL1(EVAL1(__VA_ARGS__))
 #define EVAL1(...) __VA_ARGS__
 
+
 /**
- * Concatenate the first argument with the remaing arguments treated as a
- * string.
+ * This macro will expand to nothing.
  */
-#define CAT(a, ...) PRIMITIVE_CAT(a, __VA_ARGS__)
-#define PRIMITIVE_CAT(a, ...) a ## __VA_ARGS__
-
-// ???
-#define CHECK_N(x, n, ...) n
-#define CHECK(...) CHECK_N(__VA_ARGS__, 0,)
-#define PROBE(x) x, 1,
+#define EMPTY()
 
 /**
- * Negate the boolean (given as 0 for false, anything else otherwise).
+ * Causes a function-style macro to require an additional pass to be expanded.
  *
- * When 0, _NOT_0 is found and the second argument is taken. When 1 (or any other
- * value) is used, the macro won't be found and will become a single argument to
- * CHECK. Since CHECK returns 0 if it has only one argument, this results in 0
- * being returned by not.
+ * This is useful, for example, when trying to implement recursion since the
+ * recursive step must not be expanded in a single pass as the pre-processor
+ * will catch it and prevent it.
  *
- * ~ is used arbitrarily as a "filler" value for the first argument produced by
- * the _NOT_0. This value happens causes errors if it makes it into the final
- * output and is handy for this reason.
+ * Usage:
+ *
+ *   DEFER1(IN_NEXT_PASS)(args, to, the, macro)
+ *
+ * How it works:
+ *
+ * 1. When DEFER1 is expanded, first its arguments are expanded which are
+ *    simply IN_NEXT_PASS. Since this is a function-style macro and it has no
+ *    arguments, nothing will happen.
+ * 2. The body of DEFER1 will now be expanded resulting in EMPTY() being
+ *    deleted. This results in "IN_NEXT_PASS (args, to, the macro)". Note that
+ *    since the macro expander has already passed IN_NEXT_PASS by the time it
+ *    expands EMPTY() and so it won't spot that the brackets which remain can be
+ *    applied to IN_NEXT_PASS.
+ * 3. At this point the macro expansion completes. If one more pass is made,
+ *    IN_NEXT_PASS(args, to, the, macro) will be expanded as desired.
  */
-// XXX?
-#define NOT(x) CHECK(PRIMITIVE_CAT(NOT_, x))
-#define NOT_0 PROBE(~)
-
-#define COMPL(b) PRIMITIVE_CAT(COMPL_, b)
-#define COMPL_0 1
-#define COMPL_1 0
+#define DEFER1(id) id EMPTY()
 
 /**
- * Macro version of the famous "cast to bool" which takes anything and casts it
- * to 0 if it is 0 and 1 otherwise.
+ * As with DEFER1 except here n additional passes are required for DEFERn.
+ *
+ * The mechanism is analogous.
  */
-#define BOOL(x) COMPL(NOT(x))
+#define DEFER2(id) id EMPTY EMPTY()()
+#define DEFER3(id) id EMPTY EMPTY EMPTY()()()
+#define DEFER4(id) id EMPTY EMPTY EMPTY EMPTY()()()()
+#define DEFER5(id) id EMPTY EMPTY EMPTY EMPTY EMPTY()()()()()
+#define DEFER6(id) id EMPTY EMPTY EMPTY EMPTY EMPTY EMPTY()()()()()()
+#define DEFER7(id) id EMPTY EMPTY EMPTY EMPTY EMPTY EMPTY EMPTY()()()()()()()
+#define DEFER8(id) id EMPTY EMPTY EMPTY EMPTY EMPTY EMPTY EMPTY EMPTY()()()()()()()()
+
+
+/**
+ * Indirection around the standard ## concatenation operator. This simply
+ * ensures that the arguments are expanded (once) before concatenation.
+ */
+#define CAT(a, ...) a ## __VA_ARGS__
+
+
+/**
+ * Get the second argument and ignore the rest.
+ */
+#define SECOND(x, n, ...) n
+
+/**
+ * Expects a single input (not containing commas). Returns 1 if the input is
+ * PROBE() and otherwise returns 0.
+ *
+ * This can be useful as the basis of a NOT function.
+ *
+ * This macro abuses the fact that PROBE() contains a comma while other valid
+ * inputs must not.
+ */
+#define IS_PROBE(...) SECOND(__VA_ARGS__, 0)
+#define PROBE() ~, 1
+
+
+/**
+ * Logical negation. 0 is defined as false and everything else as true.
+ *
+ * When 0, _NOT_0 will be found which evaluates to the PROBE. When 1 (or any other
+ * value) is given, an appropriately named macro won't be found and the
+ * concatenated string will be produced. IS_PROBE then simply checks to see if
+ * the PROBE was returned, cleanly converting the argument into a 1 or 0.
+ */
+#define NOT(x) IS_PROBE(CAT(_NOT_, x))
+#define _NOT_0 PROBE()
+
+/**
+ * Macro version of C's famous "cast to bool" operator (i.e. !!) which takes
+ * anything and casts it to 0 if it is 0 and 1 otherwise.
+ */
+#define BOOL(x) NOT(NOT(x))
 
 
 /**
  * Macro if statement. Usage:
  *
- *   IF(c)( \
- *     expansion when true, \
- *     expansion when false \
- *   )
+ *   IF(c)(expansion when true)
  *
  * Here's how:
  *
  * 1. The preprocessor expands the arguments to _IF casting the condition to '0'
  *    or '1'.
- * 2. The casted condition is concatencated onto _IF_ giving _IF_0 or _IF_1.
- * 3. The _IF_0 and _IF_1 macros either return their second or first arguments
- *    respectively (e.g. they implement the "choice selection" part of the
- *    macro).
- * 4. Note that the true/false clauses are in the extra set of brackets; thus
- *    these become the arguments to _IF_0 or _IF_1 and thus a selection is made!
+ * 2. The casted condition is concatencated with _IF_ giving _IF_0 or _IF_1.
+ * 3. The _IF_0 and _IF_1 macros either returns the argument or doesn't (e.g.
+ *    they implement the "choice selection" part of the macro).
+ * 4. Note that the "true" clause is in the extra set of brackets; thus these
+ *    become the arguments to _IF_0 or _IF_1 and thus a selection is made!
  */
 #define IF(c) _IF(BOOL(c))
-#define _IF(c) PRIMITIVE_CAT(_IF_,c)
-#define _IF_0(t,f) f
-#define _IF_1(t,f) t
+#define _IF(c) CAT(_IF_,c)
+#define _IF_0(t)
+#define _IF_1(t) t
 
-//#define IIF(c) PRIMITIVE_CAT(IIF_, c)
-//#define IIF_0(t, f) f
-//#define IIF_1(t, f) t
-//#define IF(c) IIF(BOOL(c))
+/**
+ * Macro if/else statement. Usage:
+ *
+ *   IF_ELSE(c)( \
+ *     expansion when true, \
+ *     expansion when false \
+ *   )
+ *
+ * The mechanism is analogous to IF.
+ */
+#define IF_ELSE(c) _IF_ELSE(BOOL(c))
+#define _IF_ELSE(c) CAT(_IF_ELSE_,c)
+#define _IF_ELSE_0(...)
+#define _IF_ELSE_1(...) __VA_ARGS__
 
-#define EAT(...)
-#define EXPAND(...) __VA_ARGS__
-#define WHEN(c,...) IF(c)(EXPAND, EAT)
 
 /**
  * Macro which checks if it has any arguments. Returns '0' if there are no
  * arguments, '1' otherwise.
  *
- * This macro works by trying to concatenate the first argument with
- * _END_OF_ARGUMENTS_. If the first argument is empty (e.g. not present) then
- * only _END_OF_ARGUMENTS_ will remain, otherwise it will be
- * _END_OF_ARGUMENTS_something_here. In the former case, the macro expands to a
- * 0 when it is expanded prior to BOOL being expanded. Otherwise, it will
- * expand to something other than 0 and BOOL will force this to '1'.
+ * This macro works as follows:
+ *
+ * 1. The first argument is concatenated with _END_OF_ARGUMENTS_.
+ * 2. If the first argument is not present then only _END_OF_ARGUMENTS_ will
+ *    remain, otherwise _END_OF_ARGUMENTS_something_here will remain.
+ * 3. In the former case, the _END_OF_ARGUMENTS_() macro expands to a
+ *    0 when it is expanded. In the latter, a non-zero result remains.
+ * 4. BOOL is used to force non-zero results into 1 giving the clean 0 or 1
+ *    output required.
  */
-#define HAS_ARGS(x, ...) BOOL(PRIMITIVE_CAT(_END_OF_ARGUMENTS_,x)())
+#define HAS_ARGS(x, ...) BOOL(CAT(_END_OF_ARGUMENTS_, x)())
 #define _END_OF_ARGUMENTS_() 0
+
 
 /**
  * Macro map/list comprehension. Usage:
  *
- *   MAP(op, ...)
+ *   MAP(op, sep, ...)
  *
- * Produces a comma-seperated list of the result of op(arg) for each arg.
+ * Produces a 'sep()'-separated list of the result of op(arg) for each arg. This
+ * macro requires that it be expanded at least as many times as there are
+ * elements in the input. This can be achieved trivially for large lists using
+ * the EVAL macro.
  *
- * Limitations: no input value may be empty.
+ * Example Usage:
+ *
+ *   #define MAKE_HAPPY(x) happy_##x
+ *   #define COMMA() ,
+ *   EVAL(MAP(MAKE_HAPPY, COMMA, 1,2,3))
+ *
+ * Which expands to:
+ *
+ *    happy_1 , happy_2 , happy_3
+ *
+ * How it works:
+ *
+ * 1. The MAP macro is substituted for its body.
+ * 2. In the body, op(cur_val) is substituted giving the value for this
+ *    iteration.
+ * 3. The IF macro expands according to whether further iterations are required.
+ *    This expansion either produces _IF_0 or _IF_1.
+ * 4. Since the IF is followed by a set of brackets containing the "if true"
+ *    clause, these become the argument to _IF_0 or _IF_1. At this point, the
+ *    macro in the brackets will be expanded giving the separator followed by
+ *    _MAP EMPTY()()(op, sep, __VA_ARGS__).
+ * 4. If the IF was not taken, the above will simply be discarded and everything
+ *    stops. If the IF is taken, The expression is then processed a second time
+ *    yielding "_MAP()(op, sep, __VA_ARGS__)". Note that this call looks very
+ *    similar to the  essentially the same as the original call except the first
+ *    argument has been dropped.
+ * 5. At this point expansion will terminate. However, since we can force
+ *    more rounds of expansion using EVAL1. In the argument-expansion pass of
+ *    the EVAL, _MAP() is expanded to MAP which is then expanded using the
+ *    arguments which follow it as in step 1-4. This is followed by a second
+ *    expansion pass as the substitution of EVAL1() is expanded executing 1-4 a
+ *    second time. This results in up to two iterations occurring. Using many
+ *    nested EVAL1 macros, or the very-deeply-nested EVAL macro, will in this
+ *    manner produce further iterations.
+ *
+ * Important tricks used:
+ *
+ * * If we directly produce "MAP" in an expansion of MAP, a special case in the
+ *   preprocessor will prevent it being expanded in the future, even if we EVAL.
+ *   As a result, the MAP macro carefully only expands to something containing
+ *   "_MAP()" which requires a further expansion step to invoke MAP and thus
+ *   implementing the recursion.
+ * * To prevent _MAP being expanded within the macro we must first defer its
+ *   expansion during its initial pass as an argument to _IF_0 or _IF_1. We must
+ *   then defer its expansion a second time as part of the body of the _IF_0. As
+ *   a result hence the DEFER2.
+ * * _MAP seemingly gets away with producing itself because it actually only
+ *   produces MAP. It just happens that when _MAP() is expanded in this case it
+ *   is followed by some arguments which get consumed by MAP and produce a _MAP.
+ *   As such, the macro expander never marks _MAP as expanding to itself and
+ *   thus it will still be expanded in future productions of itself.
  */
-#define OBSTRUCT(id) id DEFER(EMPTY)()
-
-#define EMPTY()
-#define DEFER(id) id EMPTY()
-#define FOR(op, cur_val, ...) \
-  WHEN(cur_val 0)(op(cur_val)) \
-  WHEN(__VA_ARGS__ 0)(OBSTRUCT(DEFER(_FOR))()(op, __VA_ARGS__))
-  
-
-#define _FOR() FOR
-
-#define MAKE_HAPPY(x) happy_##x
-
-EVAL(FOR(MAKE_HAPPY, 1,2,3,4))
-
-
-
-
-#define FOREVER(x) x DEFER(FOREVER_INDIRECT)()(x)
-#define FOREVER_INDIRECT() FOREVER
-
-//EVAL(FOREVER(zzz))
+#define MAP(op,sep,cur_val, ...) \
+  op(cur_val) \
+  IF(HAS_ARGS(__VA_ARGS__))( \
+    sep() DEFER2(_MAP)()(op, sep, __VA_ARGS__) \
+  )
+#define _MAP() MAP
 
 
 #endif
