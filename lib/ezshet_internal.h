@@ -204,16 +204,13 @@
  *
  *   MAP(op, sep, ...)
  *
- * Produces a 'sep()'-separated list of the result of op(arg) for each arg. This
- * macro requires that it be expanded at least as many times as there are
- * elements in the input. This can be achieved trivially for large lists using
- * the EVAL macro.
+ * Produces a 'sep()'-separated list of the result of op(arg) for each arg.
  *
  * Example Usage:
  *
  *   #define MAKE_HAPPY(x) happy_##x
  *   #define COMMA() ,
- *   EVAL(MAP(MAKE_HAPPY, COMMA, 1,2,3))
+ *   MAP(MAKE_HAPPY, COMMA, 1,2,3)
  *
  * Which expands to:
  *
@@ -221,52 +218,90 @@
  *
  * How it works:
  *
- * 1. The MAP macro is substituted for its body.
- * 2. In the body, op(cur_val) is substituted giving the value for this
+ * 1. The MAP macro simply maps the inner MAP_INNER function in an EVAL which
+ *    forces it to be expanded a large number of times, thus enabling many steps
+ *    of iteration (see step 6).
+ * 2. The MAP_INNER macro is substituted for its body.
+ * 3. In the body, op(cur_val) is substituted giving the value for this
  *    iteration.
- * 3. The IF macro expands according to whether further iterations are required.
+ * 4. The IF macro expands according to whether further iterations are required.
  *    This expansion either produces _IF_0 or _IF_1.
- * 4. Since the IF is followed by a set of brackets containing the "if true"
+ * 5. Since the IF is followed by a set of brackets containing the "if true"
  *    clause, these become the argument to _IF_0 or _IF_1. At this point, the
  *    macro in the brackets will be expanded giving the separator followed by
- *    _MAP EMPTY()()(op, sep, __VA_ARGS__).
- * 4. If the IF was not taken, the above will simply be discarded and everything
+ *    _MAP_INNER EMPTY()()(op, sep, __VA_ARGS__).
+ * 5. If the IF was not taken, the above will simply be discarded and everything
  *    stops. If the IF is taken, The expression is then processed a second time
- *    yielding "_MAP()(op, sep, __VA_ARGS__)". Note that this call looks very
- *    similar to the  essentially the same as the original call except the first
- *    argument has been dropped.
- * 5. At this point expansion will terminate. However, since we can force
- *    more rounds of expansion using EVAL1. In the argument-expansion pass of
- *    the EVAL, _MAP() is expanded to MAP which is then expanded using the
- *    arguments which follow it as in step 1-4. This is followed by a second
- *    expansion pass as the substitution of EVAL1() is expanded executing 1-4 a
- *    second time. This results in up to two iterations occurring. Using many
- *    nested EVAL1 macros, or the very-deeply-nested EVAL macro, will in this
- *    manner produce further iterations.
+ *    yielding "_MAP_INNER()(op, sep, __VA_ARGS__)". Note that this call looks
+ *    very similar to the  essentially the same as the original call except the
+ *    first argument has been dropped.
+ * 6. At this point expansion of MAP_INNER will terminate. However, since we can
+ *    force more rounds of expansion using EVAL1. In the argument-expansion pass
+ *    of the EVAL1, _MAP_INNER() is expanded to MAP_INNER which is then expanded
+ *    using the arguments which follow it as in step 2-5. This is followed by a
+ *    second expansion pass as the substitution of EVAL1() is expanded executing
+ *    2-5 a second time. This results in up to two iterations occurring. Using
+ *    many nested EVAL1 macros, i.e. the very-deeply-nested EVAL macro, will in
+ *    this manner produce further iterations, hence the outer MAP macro doing
+ *    this for us.
  *
  * Important tricks used:
  *
- * * If we directly produce "MAP" in an expansion of MAP, a special case in the
- *   preprocessor will prevent it being expanded in the future, even if we EVAL.
- *   As a result, the MAP macro carefully only expands to something containing
- *   "_MAP()" which requires a further expansion step to invoke MAP and thus
- *   implementing the recursion.
- * * To prevent _MAP being expanded within the macro we must first defer its
+ * * If we directly produce "MAP_INNER" in an expansion of MAP_INNER, a special
+ *   case in the preprocessor will prevent it being expanded in the future, even
+ *   if we EVAL.  As a result, the MAP_INNER macro carefully only expands to
+ *   something containing "_MAP_INNER()" which requires a further expansion step
+ *   to invoke MAP_INNER and thus implementing the recursion.
+ * * To prevent _MAP_INNER being expanded within the macro we must first defer its
  *   expansion during its initial pass as an argument to _IF_0 or _IF_1. We must
  *   then defer its expansion a second time as part of the body of the _IF_0. As
  *   a result hence the DEFER2.
- * * _MAP seemingly gets away with producing itself because it actually only
- *   produces MAP. It just happens that when _MAP() is expanded in this case it
- *   is followed by some arguments which get consumed by MAP and produce a _MAP.
- *   As such, the macro expander never marks _MAP as expanding to itself and
- *   thus it will still be expanded in future productions of itself.
+ * * _MAP_INNER seemingly gets away with producing itself because it actually only
+ *   produces MAP_INNER. It just happens that when _MAP_INNER() is expanded in
+ *   this case it is followed by some arguments which get consumed by MAP_INNER
+ *   and produce a _MAP_INNER.  As such, the macro expander never marks
+ *   _MAP_INNER as expanding to itself and thus it will still be expanded in
+ *   future productions of itself.
  */
-#define MAP(op,sep,cur_val, ...) \
+#define MAP(...) \
+   EVAL(MAP_INNER(__VA_ARGS__))
+#define MAP_INNER(op,sep,cur_val, ...) \
   op(cur_val) \
   IF(HAS_ARGS(__VA_ARGS__))( \
-    sep() DEFER2(_MAP)()(op, sep, __VA_ARGS__) \
+    sep() DEFER2(_MAP_INNER)()(op, sep, __VA_ARGS__) \
   )
-#define _MAP() MAP
+#define _MAP_INNER() MAP_INNER
 
+
+/**
+ * This is a variant of the MAP macro which also includes as an argument to the
+ * operation a valid C variable name which is different for each iteration.
+ *
+ * Usage:
+ *   MAP_WITH_ID(op, sep, ...)
+ *
+ * Where op is a macro op(val, id) which takes a list value and an ID. This ID
+ * will simply be a unary number using the digit "x", that is, x, xx, xxx, xxxx
+ * and so on.
+ *
+ * Example:
+ *
+ *   #define MAKE_STATIC_VAR(type, name) static type name;
+ *   MAP_WITH_ID(MAKE_STATIC_VAR, EMPTY, int, int, int, bool, char)
+ *
+ * Which expands to:
+ *
+ *   static int x; static int xx; static int xxx; static bool xxxx; static char xxxxx;
+ *
+ * The mechanism is analogous to the MAP macro.
+ */
+#define MAP_WITH_ID(op,sep,...) \
+  EVAL(MAP_WITH_ID_INNER(op,sep,x,__VA_ARGS__))
+#define MAP_WITH_ID_INNER(op,sep,id,cur_val, ...) \
+  op(cur_val,id) \
+  IF(HAS_ARGS(__VA_ARGS__))( \
+    sep() DEFER2(_MAP_WITH_ID_INNER)()(op, sep, CAT(id,x), __VA_ARGS__) \
+  )
+#define _MAP_WITH_ID_INNER() MAP_WITH_ID_INNER
 
 #endif
