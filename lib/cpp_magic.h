@@ -294,7 +294,7 @@
  *   future productions of itself.
  */
 #define MAP(...) \
-   EVAL(MAP_INNER(__VA_ARGS__))
+   IF(HAS_ARGS(__VA_ARGS__))(EVAL(MAP_INNER(__VA_ARGS__)))
 #define MAP_INNER(op,sep,cur_val, ...) \
   op(cur_val) \
   IF(HAS_ARGS(__VA_ARGS__))( \
@@ -326,7 +326,7 @@
  * The mechanism is analogous to the MAP macro.
  */
 #define MAP_WITH_ID(op,sep,...) \
-  EVAL(MAP_WITH_ID_INNER(op,sep,I,__VA_ARGS__))
+  IF(HAS_ARGS(__VA_ARGS__))(EVAL(MAP_WITH_ID_INNER(op,sep,I,__VA_ARGS__)))
 #define MAP_WITH_ID_INNER(op,sep,id,cur_val, ...) \
   op(cur_val,id) \
   IF(HAS_ARGS(__VA_ARGS__))( \
@@ -356,7 +356,7 @@
  * The mechanism is analogous to the MAP macro.
  */
 #define MAP_PAIRS(op,sep,...) \
-  EVAL(MAP_PAIRS_INNER(op,sep,__VA_ARGS__))
+  IF(HAS_ARGS(__VA_ARGS__))(EVAL(MAP_PAIRS_INNER(op,sep,__VA_ARGS__)))
 #define MAP_PAIRS_INNER(op,sep,cur_val_1, cur_val_2, ...) \
   op(cur_val_1,cur_val_2) \
   IF(HAS_ARGS(__VA_ARGS__))( \

@@ -1742,6 +1742,13 @@ bool test_SHET_UNPACK_JSON(void) {
 	TASSERT(!ok);
 	ok = true;
 	
+	// Test no arguments for array
+	char line15[] = "1";
+	TASSERT(parse(line15));
+	SHET_UNPACK_JSON(json, ok=false;);
+	TASSERT(!ok);
+	ok = true;
+	
 	return true;
 }
 
