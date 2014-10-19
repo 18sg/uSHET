@@ -9,6 +9,7 @@
 
 // Include the C files so that static functions can be tested
 #include "lib/shet.c"
+#include "lib/shet_json.c"
 #include "lib/jsmn.c"
 
 
@@ -1103,10 +1104,10 @@ bool test_return(void) {
 	shet_make_action(&state, "/test/action",
 	                 &deferred, return_null, NULL,
 	                 NULL, NULL, NULL, NULL);
-	char line1[] = "[{\"whacky\":\"id\"}, \"docall\", \"/test/action\", null]";
-	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	char line1[] = "[{\"whacky\":[\"id\",2,3]}, \"docall\", \"/test/action\", null]";
+	TASSERT_INT_EQUAL(shet_process_line(&state, line1, strlen(line1)), SHET_PROC_OK);
 	TASSERT_INT_EQUAL(transmit_count, 3);
-	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[{\"whacky\":\"id\"}, \"return\", 0, null]");
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[{\"whacky\":[\"id\",2,3]}, \"return\", 0, null]");
 	shet_remove_action(&state, "/test/action", NULL, NULL, NULL, NULL);
 	
 	// Test an action which returns some value (also tests arrays as IDs)
@@ -1556,6 +1557,194 @@ bool test_shet_watch_event(void) {
 	return true;
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+// Test JSON unpacking macros
+////////////////////////////////////////////////////////////////////////////////
+
+
+bool test_SHET_UNPACK_JSON(void) {
+	jsmntok_t tokens[100];
+	shet_json_t json;
+	
+	bool parse(char *str) {
+		json.line = str;
+		json.token = tokens;
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmnerr_t e = jsmn_parse(&p, str, strlen(str),
+	                           tokens, 100);
+		return e >= 0;
+	}
+	
+	// Variables which may be set during unpacking
+	int i1 = 0;
+	int i2 = 0;
+	int i3 = 0;
+	int i4 = 0;
+	double f1 = 0.0;
+	double f2 = 0.0;
+	double f3 = 0.0;
+	double f4 = 0.0;
+	bool b1 = false;
+	bool b2 = false;
+	bool b3 = false;
+	bool b4 = false;
+	const char *s1 = NULL;
+	const char *s2 = NULL;
+	const char *s3 = NULL;
+	const char *s4 = NULL;
+	shet_json_t a1; a1.token = NULL;
+	shet_json_t a2; a2.token = NULL;
+	shet_json_t a3; a3.token = NULL;
+	shet_json_t a4; a4.token = NULL;
+	shet_json_t o1; a1.token = NULL;
+	shet_json_t o2; a2.token = NULL;
+	shet_json_t o3; a3.token = NULL;
+	shet_json_t o4; a4.token = NULL;
+	
+	// Flag to clear on failure
+	bool ok = true;
+	
+	// Test can unpack an int
+	char line1[] = "123";
+	TASSERT(parse(line1));
+	SHET_UNPACK_JSON(json, ok=false;, i1, SHET_INT);
+	TASSERT(ok);
+	TASSERT_INT_EQUAL(i1, 123);
+	
+	// Test can unpack a float
+	char line2[] = "1.5";
+	TASSERT(parse(line2));
+	SHET_UNPACK_JSON(json, ok=false;, f1, SHET_FLOAT);
+	TASSERT(ok);
+	TASSERT(f1 == 1.5);
+	
+	// Test can unpack a boolean
+	char line3[] = "true";
+	TASSERT(parse(line3));
+	SHET_UNPACK_JSON(json, ok=false;, b1, SHET_BOOL);
+	TASSERT(ok);
+	TASSERT(b1 == true);
+	
+	// Test can unpack a null
+	char line4[] = "null";
+	TASSERT(parse(line4));
+	SHET_UNPACK_JSON(json, ok=false;, doesnotexist, SHET_NULL);
+	TASSERT(ok);
+	
+	// Test can unpack a string
+	char line5[] = "\"hello\"";
+	TASSERT(parse(line5));
+	SHET_UNPACK_JSON(json, ok=false;, s1, SHET_STRING);
+	TASSERT(ok);
+	TASSERT(s1 != NULL);
+	TASSERT(strcmp(s1, "hello") == 0);
+	
+	// Test can unpack a whole array
+	char line6[] = "[1,2,3]";
+	TASSERT(parse(line6));
+	SHET_UNPACK_JSON(json, ok=false;, a1, SHET_ARRAY);
+	TASSERT(ok);
+	TASSERT_JSON_EQUAL_TOK_STR(a1, "[1,2,3]");
+	
+	// Test can unpack a whole array
+	char line7[] = "{1:2, 3:4}";
+	TASSERT(parse(line7));
+	SHET_UNPACK_JSON(json, ok=false;, o1, SHET_OBJECT);
+	TASSERT(ok);
+	TASSERT_JSON_EQUAL_TOK_STR(o1, "{1:2, 3:4}");
+	
+	// Test unpacking a simple array
+	char line8[] = "[1,2,3,4]";
+	TASSERT(parse(line8));
+	SHET_UNPACK_JSON(json, ok=false;,
+		_, SHET_ARRAY_BEGIN,
+			i1, SHET_INT,
+			i2, SHET_INT,
+			i3, SHET_INT,
+			i4, SHET_INT,
+		_, SHET_ARRAY_END,
+	);
+	TASSERT(ok);
+	TASSERT_INT_EQUAL(i1, 1);
+	TASSERT_INT_EQUAL(i2, 2);
+	TASSERT_INT_EQUAL(i3, 3);
+	TASSERT_INT_EQUAL(i4, 4);
+	
+	// Test unpacking a multi-type array
+	char line9[] = "[1,2.5,true,null,\"abc\",[3,2,1],{true:false}]";
+	TASSERT(parse(line9));
+	SHET_UNPACK_JSON(json, ok=false;,
+		_, SHET_ARRAY_BEGIN,
+			i2, SHET_INT,
+			f2, SHET_FLOAT,
+			b2, SHET_BOOL,
+			notexist, SHET_NULL,
+			s2, SHET_STRING,
+			a2, SHET_ARRAY,
+			o2, SHET_OBJECT,
+		_, SHET_ARRAY_END,
+	);
+	TASSERT(ok);
+	TASSERT_INT_EQUAL(i2, 1);
+	TASSERT(f2 == 2.5);
+	TASSERT(b2 == true);
+	TASSERT(s2 != NULL);
+	TASSERT(strcmp(s2,"abc") == 0);
+	TASSERT_JSON_EQUAL_TOK_STR(a2, "[3,2,1]");
+	TASSERT_JSON_EQUAL_TOK_STR(o2, "{true:false}");
+	
+	// Test unpacking a nested array
+	char line10[] = "[-1,[-2,-3],-4]";
+	TASSERT(parse(line10));
+	SHET_UNPACK_JSON(json, ok=false;,
+		_, SHET_ARRAY_BEGIN,
+			i1, SHET_INT,
+			_, SHET_ARRAY_BEGIN,
+				i2, SHET_INT,
+				i3, SHET_INT,
+			_, SHET_ARRAY_END,
+			i4, SHET_INT,
+		_, SHET_ARRAY_END,
+	);
+	TASSERT(ok);
+	TASSERT_INT_EQUAL(i1, -1);
+	TASSERT_INT_EQUAL(i2, -2);
+	TASSERT_INT_EQUAL(i3, -3);
+	TASSERT_INT_EQUAL(i4, -4);
+	
+	// Test wrong type 
+	char line11[] = "false";
+	TASSERT(parse(line11));
+	SHET_UNPACK_JSON(json, ok=false;, i1, SHET_INT);
+	TASSERT(!ok);
+	ok = true;
+	
+	// Test too-many arguments for singleton
+	char line12[] = "1";
+	TASSERT(parse(line12));
+	SHET_UNPACK_JSON(json, ok=false;, i1, SHET_INT, i2, SHET_INT);
+	TASSERT(!ok);
+	ok = true;
+	
+	// Test too-many arguments for array
+	char line13[] = "[1]";
+	TASSERT(parse(line13));
+	SHET_UNPACK_JSON(json, ok=false;, i1, SHET_INT, i2, SHET_INT);
+	TASSERT(!ok);
+	ok = true;
+	
+	// Test too-few arguments for array
+	char line14[] = "[1,2,3]";
+	TASSERT(parse(line14));
+	SHET_UNPACK_JSON(json, ok=false;, i1, SHET_INT, i2, SHET_INT);
+	TASSERT(!ok);
+	ok = true;
+	
+	return true;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // World starts here
 ////////////////////////////////////////////////////////////////////////////////
@@ -1581,6 +1770,7 @@ int main(int argc, char *argv[]) {
 		test_shet_set_prop_and_shet_get_prop,
 		test_shet_make_event,
 		test_shet_watch_event,
+		test_SHET_UNPACK_JSON,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	

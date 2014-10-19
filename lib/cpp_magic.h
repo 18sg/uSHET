@@ -311,7 +311,7 @@
  *   MAP_WITH_ID(op, sep, ...)
  *
  * Where op is a macro op(val, id) which takes a list value and an ID. This ID
- * will simply be a unary number using the digit "x", that is, x, xx, xxx, xxxx
+ * will simply be a unary number using the digit "I", that is, I, II, III, IIII,
  * and so on.
  *
  * Example:
@@ -321,17 +321,47 @@
  *
  * Which expands to:
  *
- *   static int x; static int xx; static int xxx; static bool xxxx; static char xxxxx;
+ *   static int I; static int II; static int III; static bool IIII; static char IIIII;
  *
  * The mechanism is analogous to the MAP macro.
  */
 #define MAP_WITH_ID(op,sep,...) \
-  EVAL(MAP_WITH_ID_INNER(op,sep,x,__VA_ARGS__))
+  EVAL(MAP_WITH_ID_INNER(op,sep,I,__VA_ARGS__))
 #define MAP_WITH_ID_INNER(op,sep,id,cur_val, ...) \
   op(cur_val,id) \
   IF(HAS_ARGS(__VA_ARGS__))( \
-    sep() DEFER2(_MAP_WITH_ID_INNER)()(op, sep, CAT(id,x), __VA_ARGS__) \
+    sep() DEFER2(_MAP_WITH_ID_INNER)()(op, sep, CAT(id,I), __VA_ARGS__) \
   )
 #define _MAP_WITH_ID_INNER() MAP_WITH_ID_INNER
+
+
+/**
+ * This is a variant of the MAP macro which iterates over pairs rather than
+ * singletons.
+ *
+ * Usage:
+ *   MAP_PAIRS(op, sep, ...)
+ *
+ * Where op is a macro op(val_1, val_2) which takes two list values.
+ *
+ * Example:
+ *
+ *   #define MAKE_STATIC_VAR(type, name) static type name;
+ *   MAP_PAIRS(MAKE_STATIC_VAR, EMPTY, char, my_char, int, my_int)
+ *
+ * Which expands to:
+ *
+ *   static char my_char; static int my_int;
+ *
+ * The mechanism is analogous to the MAP macro.
+ */
+#define MAP_PAIRS(op,sep,...) \
+  EVAL(MAP_PAIRS_INNER(op,sep,__VA_ARGS__))
+#define MAP_PAIRS_INNER(op,sep,cur_val_1, cur_val_2, ...) \
+  op(cur_val_1,cur_val_2) \
+  IF(HAS_ARGS(__VA_ARGS__))( \
+    sep() DEFER2(_MAP_PAIRS_INNER)()(op, sep, __VA_ARGS__) \
+  )
+#define _MAP_PAIRS_INNER() MAP_PAIRS_INNER
 
 #endif

@@ -199,9 +199,7 @@ static shet_processing_error_t process_command(shet_state_t *state, shet_json_t 
 	}
 	
 	// Get the path name.
-	shet_json_t name_json;
-	name_json.line = json.line;
-	name_json.token = &(json.token[3 + json.token[1].size]);
+	shet_json_t name_json = shet_next_token(shet_next_token(state->recv_id));
 	if (!SHET_JSON_IS_TYPE(name_json, SHET_STRING))
 		return SHET_PROC_MALFORMED_COMMAND;
 	const char *name = SHET_PARSE_JSON_VALUE(name_json, SHET_STRING);
@@ -285,11 +283,10 @@ static shet_processing_error_t process_command(shet_state_t *state, shet_json_t 
 		}
 		
 		// Find the first argument (if one is present)
-		jsmntok_t *first_arg_token = &(json.token[4 + json.token[1].size]);
+		shet_json_t args_json = shet_next_token(name_json);
+		jsmntok_t *first_arg_token = args_json.token;
 		
 		// Truncate the array (remove the ID, command and path)
-		shet_json_t args_json;
-		args_json.line = json.line;
 		args_json.token = first_arg_token - 1;
 		*args_json.token = json.token[0];
 		args_json.token->size = json.token[0].size - 3;
@@ -335,9 +332,7 @@ static shet_processing_error_t process_message(shet_state_t *state, shet_json_t 
 	state->recv_id.token = json.token + 1;
 	
 	// Get the command
-	shet_json_t command_json;
-	command_json.line = json.line;
-	command_json.token = json.token + 2 + json.token[1].size;
+	shet_json_t command_json = shet_next_token(state->recv_id);
 	if (!SHET_JSON_IS_TYPE(command_json, SHET_STRING))
 		return SHET_PROC_MALFORMED_COMMAND;
 	const char *command = SHET_PARSE_JSON_VALUE(command_json, SHET_STRING);
