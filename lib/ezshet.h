@@ -1,6 +1,8 @@
 /**
  * A library of easy-to-use wrapper macros for uSHET which handle the "common
- * case" uses of uSHET with less boilerplate code.
+ * case" uses of uSHET with less boilerplate code.  Details such as defining
+ * shet_deferred_t objects, recording success of registration and, most
+ * significantly, unpacking JSON into native C types are automated.
  *
  * Note: the implementation of this library should be regarded as a little bit
  * magic due to its heavy use of advanced pre-processor macros and the

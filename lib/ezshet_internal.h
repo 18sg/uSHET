@@ -1,5 +1,17 @@
 /**
  * Implementation of EZ-SHET functions.
+ *
+ * Internally, the main EZSHET macros (e.g. EZSHET_WATCH, EZSHET_ACTION etc.)
+ * generate a number of functions and variables whose names are derived from the
+ * name supplied as the callback/first variable name. Simple wrapper functions
+ * for registration and removal are defined which EZSHET_ADD and EZSHET_REMOVE
+ * expand to. A wrapper function for callbacks will be generated which
+ * automatically type-checks the incoming JSON and returns sane error messages
+ * (if applicable) if this fails. The JSON's values are then unpacked and passed
+ * to the user-defined callback function as conventional C arguments. The return
+ * value of the callback may then also be returned as appropriate. Variables
+ * will also be defined such as appropriate shet_deferred_t along with a counter
+ * of type errors encountered by the callback wrapper.
  */
 
 
