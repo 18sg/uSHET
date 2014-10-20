@@ -192,8 +192,8 @@
  */
 #define IF(c) _IF(BOOL(c))
 #define _IF(c) CAT(_IF_,c)
-#define _IF_0(t)
-#define _IF_1(t) t
+#define _IF_0(...)
+#define _IF_1(...) __VA_ARGS__
 
 /**
  * Macro if/else statement. Usage:
@@ -207,8 +207,8 @@
  */
 #define IF_ELSE(c) _IF_ELSE(BOOL(c))
 #define _IF_ELSE(c) CAT(_IF_ELSE_,c)
-#define _IF_ELSE_0(...)
-#define _IF_ELSE_1(...) __VA_ARGS__
+#define _IF_ELSE_0(t,f) f
+#define _IF_ELSE_1(t,f) t
 
 
 /**

@@ -157,6 +157,25 @@ extern "C" {
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
+ * Determine if a type has a C equivalent type. For example, "null" does not.
+ * Returns 1 if the type has a C equivalent and 0 otherwise. If 0 is returned,
+ * SHET_GET_JSON_PARSED_TYPE should not be used.
+ *
+ * @param json A shet_json_t referring to the tokenised JSON value to be parsed.
+ * @param type One of the type macros above specifying the type of the value.
+ * @returns An expression which evaluates to the value.
+ */
+#define SHET_HAS_JSON_PARSED_TYPE(type) \
+	IS_PROBE(CAT(_SHET_HAS_JSON_PARSED_TYPE_,type)())
+
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_INT()    PROBE()
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_FLOAT()  PROBE()
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_BOOL()   PROBE()
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_STRING() PROBE()
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_ARRAY()  PROBE()
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_OBJECT() PROBE()
+
+/**
  * Generate a C expression which yields a C expression which parses the given
  * JSON value. The token should have previously been verified as having of the
  * correct type, e.g.  using SHET_JSON_IS_TYPE.
@@ -188,9 +207,6 @@ extern "C" {
 
 #define _SHET_PARSE_SHET_BOOL(json) \
 	((bool)((json).line[(json).token->start] == 't'))
-
-#define _SHET_PARSE_SHET_NULL(json) \
-	((void *)NULL)
 
 // Null terminate the string in the raw JSON (this is safe since the string will
 // always be followed by a quote character we can safely NULL out).

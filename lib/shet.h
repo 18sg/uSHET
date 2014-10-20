@@ -24,7 +24,7 @@ extern "C" {
  * message.
  */
 #ifndef SHET_NUM_TOKENS
-#define SHET_NUM_TOKENS 20
+#define SHET_NUM_TOKENS 30
 #endif
 
 /**

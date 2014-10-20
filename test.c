@@ -8,9 +8,10 @@
 #include <string.h>
 
 // Include the C files so that static functions can be tested
+#include "lib/jsmn.c"
 #include "lib/shet.c"
 #include "lib/shet_json.c"
-#include "lib/jsmn.c"
+#include "lib/ezshet.c"
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1752,6 +1753,145 @@ bool test_SHET_UNPACK_JSON(void) {
 	return true;
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+// Test EZSHET Watches
+////////////////////////////////////////////////////////////////////////////////
+
+// A watch callback which accepts no arguments
+int ez_watch_count = 0;
+void ez_watch(shet_state_t *shet) { ez_watch_count++; }
+EZSHET_DECLARE_WATCH(ez_watch);
+EZSHET_DECLARE_WATCH(ez_watch);
+EZSHET_WATCH("/ez_watch", ez_watch)
+
+// A watch callback which accepts an argument of every type
+int ez_watch_args_count = 0;
+int ez_watch_args_int = 0;
+float ez_watch_args_float = 0.0;
+bool ez_watch_args_bool = false;
+const char *ez_watch_args_string = NULL;
+int ez_watch_args_array_0 = 0;
+int ez_watch_args_array_1 = 0;
+shet_json_t ez_watch_args_array = {NULL, NULL};
+shet_json_t ez_watch_args_object = {NULL, NULL};
+void ez_watch_args(shet_state_t *shet, int i, double f, bool b, const char *s, int a0, int a1, shet_json_t a, shet_json_t o) {
+	ez_watch_args_count++;
+	ez_watch_args_int = i;
+	ez_watch_args_float = f;
+	ez_watch_args_bool = b;
+	ez_watch_args_string = s;
+	ez_watch_args_array_0 = a0;
+	ez_watch_args_array_1 = a1;
+	ez_watch_args_array = a;
+	ez_watch_args_object = o;
+}
+EZSHET_DECLARE_WATCH(ez_watch_args);
+EZSHET_DECLARE_WATCH(ez_watch_args);
+EZSHET_WATCH("/ez_watch_args", ez_watch_args,
+	SHET_INT,
+	SHET_FLOAT,
+	SHET_BOOL,
+	SHET_NULL,
+	SHET_STRING,
+	SHET_ARRAY_BEGIN,
+		SHET_INT,
+		SHET_INT,
+	SHET_ARRAY_END,
+	SHET_ARRAY,
+	SHET_OBJECT
+);
+
+
+bool test_EZSHET_WATCH(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test that registration works
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
+	EZSHET_ADD(&state, ez_watch);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"watch\",\"/ez_watch\"]");
+	
+	// Test that it does not appear if registration fails
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
+	char line1[] = "[1, \"return\", 1, \"fail\"]";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
+	
+	// Try registering again
+	EZSHET_ADD(&state, ez_watch);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"watch\",\"/ez_watch\"]");
+	
+	// Test that it does appear if registration succeeds
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
+	char line2[] = "[2, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_watch));
+	
+	// Test that the event works when no arguments are passed
+	TASSERT_INT_EQUAL(ez_watch_count, 0);
+	char line3[] = "[\"id\", \"event\", \"/ez_watch\"]";
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(ez_watch_count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"id\",\"return\",0,null]");
+	
+	// Test that the event fails when any arguments are passed
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_watch), 0);
+	char line4[] = "[\"eyedee\", \"event\", \"/ez_watch\", null]";
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_watch), 1);
+	TASSERT_INT_EQUAL(ez_watch_count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"eyedee\",\"return\",1,\"Expected no value\"]");
+	
+	// Test that un-registration works
+	EZSHET_REMOVE(&state, ez_watch);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"ignore\",\"/ez_watch\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
+	
+	// Register the watch with arguments
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch_args));
+	EZSHET_ADD(&state, ez_watch_args);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"watch\",\"/ez_watch_args\"]");
+	char line5[] = "[4, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_watch_args));
+	
+	// Check that it can be called with appropriate arguments
+	TASSERT_INT_EQUAL(ez_watch_args_count, 0);
+	char line6[] = "[\"eyed\", \"event\", \"/ez_watch_args\", 1, 2.5, true, null, \"epic\", [13,37], [3,2,1], {1:2,3:4}]";
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(ez_watch_args_count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"eyed\",\"return\",0,null]");
+	TASSERT_INT_EQUAL(ez_watch_args_int, 1);
+	TASSERT(ez_watch_args_float == 2.5);
+	TASSERT(ez_watch_args_bool == true);
+	TASSERT(strcmp(ez_watch_args_string, "epic") == 0);
+	TASSERT_INT_EQUAL(ez_watch_args_array_0, 13);
+	TASSERT_INT_EQUAL(ez_watch_args_array_1, 37);
+	TASSERT_JSON_EQUAL_TOK_STR(ez_watch_args_array, "[3,2,1]");
+	TASSERT_JSON_EQUAL_TOK_STR(ez_watch_args_object, "{1:2,3:4}");
+	
+	// Check that it can be called with inappropriate arguments
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_watch_args), 0);
+	char line7[] = "[\"idee\", \"event\", \"/ez_watch_args\", \"this ain't no good!\"]";
+	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(ez_watch_args_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_watch_args), 1);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"idee\",\"return\",1,\"Expected int float bool null string [ int int ] array object\"]");
+	
+	return true;
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 // World starts here
 ////////////////////////////////////////////////////////////////////////////////
@@ -1778,6 +1918,7 @@ int main(int argc, char *argv[]) {
 		test_shet_make_event,
 		test_shet_watch_event,
 		test_SHET_UNPACK_JSON,
+		test_EZSHET_WATCH,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
