@@ -2218,6 +2218,219 @@ bool test_EZSHET_EVENT(void) {
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// Test EZSHET Actions
+////////////////////////////////////////////////////////////////////////////////
+
+// Create an action which takes nothing and returns nothing. Also test
+// declaration works.
+unsigned int ez_action_count = 0;
+void ez_action(shet_state_t *shet) {
+	ez_action_count ++;
+}
+EZSHET_DECLARE_ACTION(ez_action);
+EZSHET_DECLARE_ACTION(ez_action);
+EZSHET_ACTION("/ez_action", ez_action, SHET_NULL);
+
+// Create an action which takes one of every type and returns a single value.
+// Also tests when declarations aren't used.
+unsigned int ez_action_args_count = 0;
+int         ez_action_args_i = 0;
+double      ez_action_args_f = 0.0;
+bool        ez_action_args_b = false;
+const char *ez_action_args_s = NULL;
+shet_json_t ez_action_args_a;
+shet_json_t ez_action_args_o;
+int ez_action_args(shet_state_t *shet, int i, double f, bool b, const char *s, shet_json_t a, shet_json_t o) {
+	ez_action_args_count ++;
+	ez_action_args_i = i;
+	ez_action_args_f = f;
+	ez_action_args_b = b;
+	ez_action_args_s = s;
+	ez_action_args_a = a;
+	ez_action_args_o = o;
+	return 1337;
+}
+EZSHET_ACTION("/ez_action_args", ez_action_args,
+	SHET_INT,
+	SHET_ARRAY_BEGIN,
+		SHET_INT,
+		SHET_FLOAT,
+	SHET_ARRAY_END,
+	SHET_BOOL,
+	SHET_NULL,
+	SHET_STRING,
+	SHET_ARRAY,
+	SHET_OBJECT);
+
+// Create an action which takes one of every type and returns those same values
+// (possibly inverted, when possible).
+unsigned int ez_action_ret_args_count = 0;
+void ez_action_ret_args(shet_state_t *shet,
+                       int *ri, double *rf, bool *rb, const char **rs, const char **ra, const char **ro,
+                       int i, double f, bool b, const char *s, shet_json_t a, shet_json_t o) {
+	ez_action_ret_args_count ++;
+	*ri = -i;
+	*rf = -f;
+	*rb = !b;
+	*rs = s;
+	a.line[a.token->end] = '\0';
+	*ra = a.line + a.token->start;
+	o.line[o.token->end] = '\0';
+	*ro = o.line + o.token->start;;
+}
+EZSHET_ACTION("/ez_action_ret_args", ez_action_ret_args,
+	EZSHET_RETURN_ARGS_BEGIN,
+		SHET_ARRAY_BEGIN,
+			SHET_INT,
+			SHET_FLOAT,
+		SHET_ARRAY_END,
+		SHET_BOOL,
+		SHET_NULL,
+		SHET_STRING,
+		SHET_ARRAY,
+		SHET_OBJECT,
+	EZSHET_RETURN_ARGS_END,
+	SHET_ARRAY_BEGIN,
+		SHET_INT,
+		SHET_FLOAT,
+	SHET_ARRAY_END,
+	SHET_BOOL,
+	SHET_NULL,
+	SHET_STRING,
+	SHET_ARRAY,
+	SHET_OBJECT);
+
+
+bool test_EZSHET_ACTION(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test that registration works
+	TASSERT(!EZSHET_IS_REGISTERED(ez_action));
+	EZSHET_ADD(&state, ez_action);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkaction\",\"/ez_action\"]");
+	
+	// Test that it does not appear if registration fails
+	TASSERT(!EZSHET_IS_REGISTERED(ez_action));
+	char line1[] = "[1, \"return\", 1, \"fail\"]";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	TASSERT(!EZSHET_IS_REGISTERED(ez_action));
+	
+	// Test that it does appear after successful registration
+	EZSHET_ADD(&state, ez_action);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"mkaction\",\"/ez_action\"]");
+	char line2[] = "[2, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_action));
+	
+	// Test that the action now works
+	char line3[] = "[0, \"docall\", \"/ez_action\"]";
+	TASSERT_INT_EQUAL(ez_action_count, 0);
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,null]");
+	TASSERT_INT_EQUAL(ez_action_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action), 0);
+	
+	// Test that the action rejects anything other than a null argument
+	char line4[] = "[0, \"docall\", \"/ez_action\", 123]";
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",1,\"Expected no value\"]");
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action), 1);
+	TASSERT_INT_EQUAL(ez_action_count, 1);
+	
+	// Unregister the action and make sure it stops working
+	EZSHET_REMOVE(&state, ez_action);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmaction\",\"/ez_action\"]");
+	
+	// Register the action with many arguments and a return.
+	EZSHET_ADD(&state, ez_action_args);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"mkaction\",\"/ez_action_args\"]");
+	char line5[] = "[4, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_action_args));
+	
+	// Test that the action works
+	char line6[] = "[0, \"docall\", \"/ez_action_args\","
+	               "[1,2.5],true,null,\"hello\",[1,2,3],{1:2,3:4}"
+	               "]";
+	TASSERT_INT_EQUAL(ez_action_args_count, 0);
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,1337]");
+	TASSERT_INT_EQUAL(ez_action_args_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action_args), 0);
+	
+	// Check the arguments made it
+	TASSERT_INT_EQUAL(ez_action_args_i, 1);
+	TASSERT(ez_action_args_f == 2.5);
+	TASSERT(ez_action_args_b == true);
+	TASSERT(strcmp(ez_action_args_s, "hello") == 0);
+	TASSERT_JSON_EQUAL_TOK_STR(ez_action_args_a, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(ez_action_args_o, "{1:2,3:4}");
+	
+	// Test wrong arguments break it
+	char line7[] = "[0, \"docall\", \"/ez_action_args\","
+	               "1,2,3,\"magic unicorn fairies\""
+	               "]";
+	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",1,\""
+	                           "Expected [int, float], bool, null, string, array, object"
+	                           "\"]");
+	TASSERT_INT_EQUAL(ez_action_args_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action_args), 1);
+	
+	// Get rid of it
+	EZSHET_REMOVE(&state, ez_action_args);
+	TASSERT_INT_EQUAL(transmit_count, 10);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"rmaction\",\"/ez_action_args\"]");
+	
+	// Register the action with many arguments which returns all its arguments.
+	EZSHET_ADD(&state, ez_action_ret_args);
+	TASSERT_INT_EQUAL(transmit_count, 11);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"mkaction\",\"/ez_action_ret_args\"]");
+	char line8[] = "[6, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line8, strlen(line8)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_action_ret_args));
+	
+	// Test that the action works
+	char line9[] = "[0, \"docall\", \"/ez_action_ret_args\","
+	               "[1,2.5],true,null,\"hello\",[1,2,3],{1:2,3:4}"
+	               "]";
+	TASSERT_INT_EQUAL(ez_action_ret_args_count, 0);
+	TASSERT(shet_process_line(&state, line9, strlen(line9)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 12);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,"
+	                          "[-1,-2.500000],false,null,\"hello\",[1,2,3],{1:2,3:4}"
+	                          "]");
+	TASSERT_INT_EQUAL(ez_action_ret_args_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action_ret_args), 0);
+	
+	// Test the wrong arguments still break it
+	char line10[] = "[0, \"docall\", \"/ez_action_ret_args\","
+	               "1,2,3,\"magic gremlin fairies\""
+	               "]";
+	TASSERT(shet_process_line(&state, line10, strlen(line10)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 13);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",1,\""
+	                           "Expected [int, float], bool, null, string, array, object"
+	                           "\"]");
+	TASSERT_INT_EQUAL(ez_action_ret_args_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action_ret_args), 1);
+	
+	return true;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////
 // World starts here
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -2247,6 +2460,7 @@ int main(int argc, char *argv[]) {
 		test_SHET_PACK_JSON,
 		test_EZSHET_WATCH,
 		test_EZSHET_EVENT,
+		test_EZSHET_ACTION,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	

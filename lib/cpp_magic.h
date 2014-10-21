@@ -87,6 +87,7 @@
 /**
  * Macros which expand to common values
  */
+#define PASS(...) __VA_ARGS__
 #define EMPTY()
 #define COMMA() ,
 #define PLUS() +
@@ -429,5 +430,13 @@
     sep() DEFER2(_MAP_SLIDE_INNER)()(op, last_op, sep, __VA_ARGS__) \
   )
 #define _MAP_SLIDE_INNER() MAP_SLIDE_INNER
+
+
+/**
+ * Strip any excess commas from a set of arguments.
+ */
+#define REMOVE_TRAILING_COMMAS(...) \
+	MAP(PASS, COMMA, __VA_ARGS__)
+
 
 #endif

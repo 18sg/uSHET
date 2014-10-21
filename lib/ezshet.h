@@ -27,6 +27,17 @@ extern "C" {
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
+// Definitions
+////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * A special return type which allows multiple values to be returned via
+ * return-pointers rather than a conventional return value.
+ */
+#define EZSHET_RETURN_ARGS_BEGIN EZSHET_RETURN_ARGS_BEGIN
+#define EZSHET_RETURN_ARGS_END   EZSHET_RETURN_ARGS_END
+
+////////////////////////////////////////////////////////////////////////////////
 // General functions
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -149,14 +160,21 @@ extern "C" {
  *             defined with this name prefixed with get_ and set_ (e.g. if name
  *             is my_prop, you should define get_my_prop and set_my_prop). The
  *             get callback will simply be passed a shet_state_t * and should
- *             return a value of the appropriate type. The set callback will be
- *             passed a shet_state_t * followed by an appropriate value. The set
- *             callback should have a void return type.
+ *             return a value of the appropriate type (either via arguments or
+ *             return value, see type). The set callback will be passed a
+ *             shet_state_t * followed by an appropriate value. The set callback
+ *             should have a void return type.
  * @param type The type of the property (e.g. SHET_INT). This may not include
  *             unpacked types, e.g. SHET_ARRAY_BEGIN/SHET_ARRAY_END.
+ *             Alternatively may be EZSHET_RETURN_ARGS_BEGIN followed by a
+ *             number of types including the unpacked types and terminated by
+ *             EZSHET_RETURN_ARGS_END. In the both cases, the setter receives
+ *             the values as arguments and returns void. In the former case the
+ *             getter returns its value. In the latter case the getter returns
+ *             values via return-pointer arguments.
  */
-#define EZSHET_PROP(path, name, type) \
-	_EZSHET_PROP(path, name, type)
+#define EZSHET_PROP(path, name, type, ...) \
+	_EZSHET_PROP(path, name, type, ...)
 
 /**
  * Generate a C declaration for the property.
@@ -218,12 +236,20 @@ extern "C" {
  * @param name The name of the callback function which implements the action.
  *             The callback function will be passed a shet_state_t *
  *             followed by arguments as defined below corresponding with the
- *             event values. The callback should return a value as dictated by
+ *             call arguments. The callback may return a value as dictated by
  *             ret_type.
- * @param ret_type The return type of the action (e.g. SHET_INT).
+ * @param ret_type The return type of the action (e.g. SHET_INT). If this is a
+ *                 normal type, the callback function's return value will be
+ *                 used. If this value is EZSHET_RETURN_ARGS_BEGIN followed by a
+ *                 list of types (which may include packed types e.g.
+ *                 SHET_ARRAY_BEGIN), the callback is expected to return values
+ *                 via corresponding return-pointer arguments which will appear
+ *                 before the normal arguments to the callback and the function
+ *                 should return void. The list of return values must be
+ *                 terminated with EZSHET_RETURN_ARGS_END.
  * @param ... The type(s) of the value(s) passed with the event (e.g. SHET_INT).
- *            Can nothing if no value is expected. May also be an unpacked type
- *            (e.g. SHET_ARRAY_BEGIN).
+ *            Can be nothing if no value is expected or an unpacked type (e.g.
+ *            SHET_ARRAY_BEGIN).
  */
 #define EZSHET_ACTION(path, name, ret_type, ...) \
 	_EZSHET_ACTION(path, name, ret_type, __VA_ARGS__)

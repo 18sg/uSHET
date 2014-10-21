@@ -254,6 +254,122 @@ extern "C" {
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// Action Creation
+////////////////////////////////////////////////////////////////////////////////
+
+#define _EZSHET_DECLARE_ACTION(name) \
+	/* Underlying function for EZSHET_ADD */ \
+	void _EZSHET_ADD_FN(name)(shet_state_t *shet); \
+	/* Underlying function for EZSHET_REMOVE */ \
+	void _EZSHET_REMOVE_FN(name)(shet_state_t *shet); \
+	/* Underlying wrapper callback for the action */ \
+	void _EZSHET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data); \
+	/* Underlying variable for EZSHET_IS_REGISTERED */ \
+	extern bool _EZSHET_IS_REGISTERED_VAR(name); \
+	/* Underlying variable for EZSHET_ERROR_COUNT */ \
+	extern unsigned int _EZSHET_ERROR_COUNT_VAR(name); \
+	/* Variable storing the path of the action */ \
+	extern const char _EZSHET_PATH_VAR(name)[]; \
+	/* The deferreds for the event and its registration. */ \
+	extern shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
+	extern shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
+
+#define _EZSHET_ACTION(path, name, ret_type, ...) \
+	_EZSHET_DECLARE_ACTION(name); \
+	/* Underlying function for EZSHET_ADD */ \
+	void _EZSHET_ADD_FN(name)(shet_state_t *shet) { \
+		_EZSHET_IS_REGISTERED_VAR(name) = false;\
+		shet_make_action(shet, \
+		                 _EZSHET_PATH_VAR(name), \
+		                 &_EZSHET_DEFERRED_VAR(name), \
+		                 _EZSHET_WRAPPER_FN(name), \
+		                 NULL, \
+		                 &_EZSHET_DEFERRED_MAKE_VAR(name), \
+		                 _ezshet_set_is_registered, \
+		                 _ezshet_clear_is_registered, \
+		                 &_EZSHET_IS_REGISTERED_VAR(name)); \
+	} \
+	/* Underlying function for EZSHET_REMOVE */ \
+	void _EZSHET_REMOVE_FN(name)(shet_state_t *shet) { \
+		_EZSHET_IS_REGISTERED_VAR(name) = false;\
+		shet_remove_action(shet, \
+		                   _EZSHET_PATH_VAR(name), \
+		                   NULL, \
+		                   NULL, \
+		                   NULL, \
+		                   NULL); \
+	} \
+	/* Underlying wrapper callback for action calls */ \
+	void _EZSHET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
+		/* Create variables to unpack the JSON into. */ \
+		_EZSHET_DEFINE_VARS( \
+			_EZSHET_NAME_TYPES( \
+				_EZSHET_WRAP_IN_ARRAY( \
+					_EZSHET_JUST_ARGS(ret_type, __VA_ARGS__)))); \
+		/* Unpack the JSON. */ \
+		bool error = false; \
+		SHET_UNPACK_JSON(json, error=true;, \
+			_EZSHET_NAME_TYPES( \
+				_EZSHET_WRAP_IN_ARRAY( \
+					_EZSHET_JUST_ARGS(ret_type,__VA_ARGS__)))); \
+		/* Create return variables. */ \
+		_EZSHET_DEFINE_RETURN_VARS( \
+			_EZSHET_NAME_RETURN_TYPES( \
+				_EZSHET_JUST_RET_ARGS(ret_type, __VA_ARGS__))); \
+		/* Execute the callback and send the return via SHET. */ \
+		if (!error) { \
+			/* Store the callback value (if appropriate). */ \
+			IF(AND(NOT(_EZSHET_IS_RETURN_ARGS_BEGIN(ret_type)), SHET_HAS_JSON_PARSED_TYPE(ret_type)))( \
+				SHET_GET_JSON_PARSED_TYPE(ret_type) ret_val = )\
+			/* Execute the callback. */ \
+			name(shet \
+			     /* Pass return arguments. */ \
+			     _EZSHET_RETURN_ARGS_VARS( \
+			       _EZSHET_NAME_RETURN_TYPES( \
+			         _EZSHET_JUST_RET_ARGS(ret_type,__VA_ARGS__))) \
+			     /* Pass arguments. */ \
+			     _EZSHET_ARGS_VARS( \
+			       _EZSHET_NAME_TYPES( \
+			         _EZSHET_WRAP_IN_ARRAY( \
+			           _EZSHET_JUST_ARGS(ret_type, __VA_ARGS__))))); \
+			/* Pack a returned value. */ \
+			IF(NOT(_EZSHET_IS_RETURN_ARGS_BEGIN(ret_type)))( \
+				char packed_ret_val[SHET_PACK_JSON_LENGTH(ret_val, ret_type)]; \
+				SHET_PACK_JSON(packed_ret_val, ret_val, ret_type); \
+			) \
+			/* Pack an argument-returned value. */ \
+			IF(_EZSHET_IS_RETURN_ARGS_BEGIN(ret_type))( \
+				char packed_ret_val[ \
+					SHET_PACK_JSON_LENGTH( \
+						_EZSHET_NAME_RETURN_TYPES( \
+							_EZSHET_JUST_RET_ARGS(ret_type, __VA_ARGS__))) \
+				]; \
+				SHET_PACK_JSON(packed_ret_val, \
+						_EZSHET_NAME_RETURN_TYPES( \
+							_EZSHET_JUST_RET_ARGS(ret_type, __VA_ARGS__))); \
+			) \
+			/* Send the response to SHET. */ \
+			shet_return(shet, 0, packed_ret_val); \
+		} else { \
+			static const char err_message[] = \
+				_EZSHET_ERROR_MSG(_EZSHET_JUST_ARGS(ret_type, __VA_ARGS__)); \
+			_EZSHET_ERROR_COUNT_VAR(name)++; \
+			shet_return(shet, 1, err_message); \
+		} \
+	} \
+	/* Underlying variable for EZSHET_IS_REGISTERED */ \
+	bool _EZSHET_IS_REGISTERED_VAR(name) = false; \
+	/* Underlying variable for EZSHET_ERROR_COUNT */ \
+	unsigned int _EZSHET_ERROR_COUNT_VAR(name) = 0; \
+	/* Variable storing the path of the action */ \
+	const char _EZSHET_PATH_VAR(name)[] = path; \
+	/* The deferreds for the event and its registration. */ \
+	shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
+	shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
+
+
+
+////////////////////////////////////////////////////////////////////////////////
 // Internally-used utility macros
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -277,6 +393,18 @@ extern "C" {
 
 
 /**
+ * Given a list of types (e.g. SHET_INT), returns a new pair name, type  for
+ * each of the original inputs with an automatically chosen name which is
+ * different from those produced by _EZSHET_NAME_TYPES.
+ */
+#define _EZSHET_NAME_RETURN_TYPES(...) \
+	MAP_WITH_ID(_EZSHET_NAME_RETURN_TYPES_OP, COMMA, __VA_ARGS__)
+
+#define _EZSHET_NAME_RETURN_TYPES_OP(type, name) \
+	ret_##name, type
+
+
+/**
  * Given an alternating list of names and types (e.g. SHET_INT), produce C
  * variable declarations accordingly. Filters out types such as SHET_NULL.
  */
@@ -290,6 +418,20 @@ extern "C" {
 
 
 /**
+ * Given an alternating list of names and types (e.g. SHET_INT), produce C
+ * variable declarations accordingly for returned types. Filters out types such
+ * as SHET_NULL.
+ */
+#define _EZSHET_DEFINE_RETURN_VARS(...) \
+	MAP_PAIRS(_EZSHET_DEFINE_RETURN_VARS_OP, EMPTY, __VA_ARGS__)
+
+#define _EZSHET_DEFINE_RETURN_VARS_OP(name, type) \
+	IF(SHET_HAS_JSON_PARSED_TYPE(type))( \
+		SHET_GET_JSON_ENCODED_TYPE(type) name; \
+	)
+
+
+/**
  * Given an alternating list of names and types (e.g. SHET_INT), produce a list
  * of function call arguments for the names whose types are not SHET_NULL etc.
  * Each argument produced will be preceded by a comma.
@@ -299,6 +441,19 @@ extern "C" {
 
 #define _EZSHET_ARGS_VARS_OP(name, type) \
 	IF(SHET_HAS_JSON_PARSED_TYPE(type))(COMMA() name)
+
+
+/**
+ * Given an alternating list of names and types (e.g. SHET_INT), produce a list
+ * of function call arguments for pointers to dereferenced versions of the names
+ * whose types are not SHET_NULL etc.  Each argument produced will be preceded
+ * by a comma.
+ */
+#define _EZSHET_RETURN_ARGS_VARS(...) \
+	MAP_PAIRS(_EZSHET_RETURN_ARGS_VARS_OP, EMPTY, __VA_ARGS__)
+
+#define _EZSHET_RETURN_ARGS_VARS_OP(name, type) \
+	IF(SHET_HAS_JSON_PARSED_TYPE(type))(COMMA() &(name))
 
 
 /**
@@ -326,6 +481,71 @@ extern "C" {
 		"no value" \
 	) \
 	"\""
+
+
+/**
+ * Test if a given argument is EZSHET_RETURN_ARGS_BEGIN. 1 if it is, 0
+ * otherwise.
+ */
+#define _EZSHET_IS_RETURN_ARGS_BEGIN(m) NOT(CAT(_EZSHET_IS_RETURN_ARGS_BEGIN_, m)())
+#define _EZSHET_IS_RETURN_ARGS_BEGIN_EZSHET_RETURN_ARGS_BEGIN() 0
+
+
+/**
+ * Test if a given argument is EZSHET_RETURN_ARGS_END. 1 if it is, 0 otherwise.
+ */
+#define _EZSHET_IS_RETURN_ARGS_END(m) NOT(CAT(_EZSHET_IS_RETURN_ARGS_END_, m)())
+#define _EZSHET_IS_RETURN_ARGS_END_EZSHET_RETURN_ARGS_END() 0
+
+
+/**
+ * Given a return type and the list of types which follow, return just the
+ * arguments (i.e. not the return types between EZSHET_RETURN_ARGS_BEGIN and
+ * EZSHET_RETURN_ARGS_END).
+ *
+ * Mechanism is analagous to the MAP function.
+ */
+#define _EZSHET_JUST_ARGS(ret_type, ...) \
+  /* Is a EZSHET_RETURN_ARGS_BEGIN, look for the end. */ \
+  IF(AND(_EZSHET_IS_RETURN_ARGS_BEGIN(ret_type), HAS_ARGS(__VA_ARGS__)))( \
+    REMOVE_TRAILING_COMMAS(EVAL(_EZSHET_JUST_ARGS_INNER(__VA_ARGS__))) \
+  ) \
+  /* Not a EZSHET_RETURN_ARGS_BEGIN, just return the arguments. */ \
+  IF(NOT(_EZSHET_IS_RETURN_ARGS_BEGIN(ret_type)))(__VA_ARGS__)
+
+#define _EZSHET_JUST_ARGS_INNER(cur_type, ...) \
+  /* Once we reach the EZSHET_RETURN_ARGS_END, the actual arguments follow. */ \
+  IF(_EZSHET_IS_RETURN_ARGS_END(cur_type))(__VA_ARGS__) \
+  /* Keep going until the end is found. */ \
+  IF(AND(NOT(_EZSHET_IS_RETURN_ARGS_END(cur_type)), HAS_ARGS(__VA_ARGS__)))( \
+    DEFER2(__EZSHET_JUST_ARGS_INNER)()(__VA_ARGS__) \
+  )
+#define __EZSHET_JUST_ARGS_INNER() _EZSHET_JUST_ARGS_INNER
+
+
+/**
+ * Given a return type and the arguments which follow, return the return arguments
+ * (i.e. those between EZSHET_RETURN_ARGS_BEGIN and EZSHET_RETURN_ARGS_END).
+ *
+ * Mechanism is analagous to the MAP function.
+ */
+#define _EZSHET_JUST_RET_ARGS(ret_type, ...) \
+  /* Has arguments, print until the end. */ \
+  IF(AND(_EZSHET_IS_RETURN_ARGS_BEGIN(ret_type), HAS_ARGS(__VA_ARGS__)))( \
+    REMOVE_TRAILING_COMMAS(EVAL(_EZSHET_JUST_RET_ARGS_INNER(__VA_ARGS__))) \
+  ) \
+  /* No return arguments. */ \
+  IF(NOT(_EZSHET_IS_RETURN_ARGS_BEGIN(ret_type)))()
+
+#define _EZSHET_JUST_RET_ARGS_INNER(cur_type, ...) \
+  /* Just copy input until we reach EZSHET_RETURN_ARGS_END stop. Note: leaves
+   * trailing commas.
+   */ \
+  IF(NOT(_EZSHET_IS_RETURN_ARGS_END(cur_type)))(cur_type ,) \
+  IF(AND(NOT(_EZSHET_IS_RETURN_ARGS_END(cur_type)), HAS_ARGS(__VA_ARGS__)))( \
+    DEFER2(__EZSHET_JUST_RET_ARGS_INNER)()(__VA_ARGS__) \
+  )
+#define __EZSHET_JUST_RET_ARGS_INNER() _EZSHET_JUST_RET_ARGS_INNER
 
 
 ////////////////////////////////////////////////////////////////////////////////
