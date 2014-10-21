@@ -318,23 +318,28 @@ extern "C" {
  * Given a list of types (e.g. SHET_INT), produce a string literal containing a
  * JSON string with an error message of the style:
  *
- *   "Expected: [ int int string [ bool null ] ]"
+ *   "Expected: [ int , int , string , [ bool , null ] ]"
  *
- * Note that commas are omitted (unfortunately) and that opening and closing
- * quotes are included.
+ * Note that opening and closing quotes are included (making it a valid JSON
+ * string).
  */
 #define _EZSHET_ERROR_MSG(...) \
 	"\"Expected " \
 	IF_ELSE(HAS_ARGS(__VA_ARGS__))(\
-		MAP(_EZSHET_ERROR_MSG_OP, _EZSHET_ERROR_MSG_SPACE, __VA_ARGS__), \
+		MAP_SLIDE(_EZSHET_ERROR_MSG_OP, \
+		          _EZSHET_ERROR_MSG_LAST_OP, \
+		          EMPTY, \
+		          __VA_ARGS__), \
 		"no value" \
 	) \
 	"\""
 
-#define _EZSHET_ERROR_MSG_OP(type) \
-	CAT(_EZSHET_ERROR_MSG_, type)()
+#define _EZSHET_ERROR_MSG_OP(type, next_type) \
+	CAT(_EZSHET_ERROR_MSG_, type)() \
+	IF(SHET_JSON_IS_COMMA_BETWEEN(type, next_type))(", ")
 
-#define _EZSHET_ERROR_MSG_SPACE() " "
+#define _EZSHET_ERROR_MSG_LAST_OP(type) \
+	CAT(_EZSHET_ERROR_MSG_, type)()
 
 #define _EZSHET_ERROR_MSG_SHET_INT()          "int"
 #define _EZSHET_ERROR_MSG_SHET_FLOAT()        "float"

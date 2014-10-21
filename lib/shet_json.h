@@ -483,7 +483,7 @@ static inline const char *_shet_parse_shet_string(shet_json_t json) {
 // type is appropriate.
 #define _SHET_PACK_JSON_FORMAT_OP(cur_type, next_type) \
 	SHET_ENCODE_JSON_FORMAT(cur_type) \
-	IF(_SHET_PACK_JSON_COMMA_BETWEEN(cur_type, next_type))(",")
+	IF(SHET_JSON_IS_COMMA_BETWEEN(cur_type, next_type))(",")
 
 /**
  * Work out the total length required for a JSON string produced by
@@ -509,7 +509,7 @@ static inline const char *_shet_parse_shet_string(shet_json_t json) {
 // Produce 1 if there will be a comma following cur_type, otherwise produces
 // zero.
 #define _SHET_PACK_JSON_LENGTH_OP(cur_type, next_type) \
-	_SHET_PACK_JSON_COMMA_BETWEEN(cur_type, next_type)
+	SHET_JSON_IS_COMMA_BETWEEN(cur_type, next_type)
 
 // Always produces zero since the last value is never followed by a comma.
 #define _SHET_PACK_JSON_LENGTH_LAST_OP(cur_type) \
@@ -517,12 +517,12 @@ static inline const char *_shet_parse_shet_string(shet_json_t json) {
 
 
 // Expands to 1 if a comma should be placed between the given types, 0 otherwise.
-#define _SHET_PACK_JSON_COMMA_BETWEEN(first_type, second_type) \
-	AND(NOT(IS_PROBE(CAT(_SHET_PACK_JSON_NOT_COMMA_AFTER_, first_type)())), \
-	    NOT(IS_PROBE(CAT(_SHET_PACK_JSON_NOT_COMMA_BEFORE_, second_type)())))
+#define SHET_JSON_IS_COMMA_BETWEEN(first_type, second_type) \
+	AND(NOT(IS_PROBE(CAT(_SHET_JSON_NO_COMMA_AFTER_, first_type)())), \
+	    NOT(IS_PROBE(CAT(_SHET_JSON_NO_COMMA_BEFORE_, second_type)())))
 
-#define _SHET_PACK_JSON_NOT_COMMA_AFTER_SHET_ARRAY_BEGIN() PROBE()
-#define _SHET_PACK_JSON_NOT_COMMA_BEFORE_SHET_ARRAY_END() PROBE()
+#define _SHET_JSON_NO_COMMA_AFTER_SHET_ARRAY_BEGIN() PROBE()
+#define _SHET_JSON_NO_COMMA_BEFORE_SHET_ARRAY_END() PROBE()
 
 
 ////////////////////////////////////////////////////////////////////////////////

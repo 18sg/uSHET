@@ -2070,7 +2070,7 @@ bool test_EZSHET_WATCH(void) {
 	TASSERT_INT_EQUAL(ez_watch_args_count, 1);
 	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_watch_args), 1);
 	TASSERT_INT_EQUAL(transmit_count, 9);
-	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"idee\",\"return\",1,\"Expected int float bool null string [ int int ] array object\"]");
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"idee\",\"return\",1,\"Expected int, float, bool, null, string, [int, int], array, object\"]");
 	
 	return true;
 }
