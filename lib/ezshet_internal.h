@@ -315,41 +315,17 @@ extern "C" {
 
 
 /**
- * Given a list of types (e.g. SHET_INT), produce a string literal containing a
- * JSON string with an error message of the style:
- *
- *   "Expected: [ int , int , string , [ bool , null ] ]"
- *
- * Note that opening and closing quotes are included (making it a valid JSON
- * string).
+ * Given a list of types (e.g. SHET_INT), produce an error message implying
+ * those types were expected. Note that opening and closing quotes are included
+ * (making it a valid JSON string).
  */
 #define _EZSHET_ERROR_MSG(...) \
 	"\"Expected " \
 	IF_ELSE(HAS_ARGS(__VA_ARGS__))(\
-		MAP_SLIDE(_EZSHET_ERROR_MSG_OP, \
-		          _EZSHET_ERROR_MSG_LAST_OP, \
-		          EMPTY, \
-		          __VA_ARGS__), \
+		SHET_JSON_TYPES_AS_STRING(__VA_ARGS__), \
 		"no value" \
 	) \
 	"\""
-
-#define _EZSHET_ERROR_MSG_OP(type, next_type) \
-	CAT(_EZSHET_ERROR_MSG_, type)() \
-	IF(SHET_JSON_IS_COMMA_BETWEEN(type, next_type))(", ")
-
-#define _EZSHET_ERROR_MSG_LAST_OP(type) \
-	CAT(_EZSHET_ERROR_MSG_, type)()
-
-#define _EZSHET_ERROR_MSG_SHET_INT()          "int"
-#define _EZSHET_ERROR_MSG_SHET_FLOAT()        "float"
-#define _EZSHET_ERROR_MSG_SHET_BOOL()         "bool"
-#define _EZSHET_ERROR_MSG_SHET_STRING()       "string"
-#define _EZSHET_ERROR_MSG_SHET_NULL()         "null"
-#define _EZSHET_ERROR_MSG_SHET_ARRAY()        "array"
-#define _EZSHET_ERROR_MSG_SHET_ARRAY_BEGIN()  "["
-#define _EZSHET_ERROR_MSG_SHET_ARRAY_END()    "]"
-#define _EZSHET_ERROR_MSG_SHET_OBJECT()       "object"
 
 
 ////////////////////////////////////////////////////////////////////////////////

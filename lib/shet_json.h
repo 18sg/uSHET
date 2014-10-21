@@ -526,6 +526,58 @@ static inline const char *_shet_parse_shet_string(shet_json_t json) {
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// JSON type sequence to string literal
+////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Given a list of types (e.g. SHET_INT), produce a C string literal which
+ * describes those types. Useful for generating error messages.
+ *
+ * For example:
+ *
+ *   SHET_JSON_TYPES_AS_STRING(
+ *     SHET_INT,
+ *     SHET_ARRAY_BEGIN,
+ *       SHET_BOOL,
+ *       SHET_NULL,
+ *     SHET_ARRAY_END,
+ *     SHET_ARRAY,
+ *     SHET_OBJECT
+ *   );
+ *
+ * Expands to a string literal:
+ *
+ *   int, [bool, null], array, object
+ */
+#define SHET_JSON_TYPES_AS_STRING(...) \
+	MAP_SLIDE(_SHET_JSON_TYPES_AS_STRING_OP, \
+	          SHET_JSON_TYPE_AS_STRING, \
+	          EMPTY, \
+	          __VA_ARGS__)
+
+#define _SHET_JSON_TYPES_AS_STRING_OP(type, next_type) \
+	SHET_JSON_TYPE_AS_STRING(type) \
+	IF(SHET_JSON_IS_COMMA_BETWEEN(type, next_type))(", ")
+
+/**
+ * Given a single type (e.g. SHET_INT), expand to a C string literal naming that
+ * type.
+ */
+#define SHET_JSON_TYPE_AS_STRING(type) \
+	CAT(_SHET_JSON_TYPE_AS_STRING_, type)()
+
+#define _SHET_JSON_TYPE_AS_STRING_SHET_INT()          "int"
+#define _SHET_JSON_TYPE_AS_STRING_SHET_FLOAT()        "float"
+#define _SHET_JSON_TYPE_AS_STRING_SHET_BOOL()         "bool"
+#define _SHET_JSON_TYPE_AS_STRING_SHET_STRING()       "string"
+#define _SHET_JSON_TYPE_AS_STRING_SHET_NULL()         "null"
+#define _SHET_JSON_TYPE_AS_STRING_SHET_ARRAY()        "array"
+#define _SHET_JSON_TYPE_AS_STRING_SHET_ARRAY_BEGIN()  "["
+#define _SHET_JSON_TYPE_AS_STRING_SHET_ARRAY_END()    "]"
+#define _SHET_JSON_TYPE_AS_STRING_SHET_OBJECT()       "object"
+
+
+////////////////////////////////////////////////////////////////////////////////
 // JSON token iteration
 ////////////////////////////////////////////////////////////////////////////////
 
