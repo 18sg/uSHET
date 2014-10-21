@@ -6,13 +6,13 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#include <limits.h>
 
 // Include the C files so that static functions can be tested
 #include "lib/jsmn.c"
 #include "lib/shet.c"
 #include "lib/shet_json.c"
 #include "lib/ezshet.c"
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // JSON test utilities
@@ -36,7 +36,9 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	// Compare atomic objects
 	} else if ((*tokens_a)->type == JSMN_PRIMITIVE ||
 	           (*tokens_a)->type == JSMN_STRING) {
-		if (strncmp(json_a+(*tokens_a)->start,
+		if ( ((*tokens_a)->end - (*tokens_a)->start) !=
+		     ((*tokens_b)->end - (*tokens_b)->start) ||
+		    strncmp(json_a+(*tokens_a)->start,
 		            json_b+(*tokens_b)->start,
 		            (*tokens_a)->end - (*tokens_a)->start) != 0) {
 			if (differing_a != NULL) *differing_a = **tokens_a;
@@ -106,6 +108,16 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	if (!cmp_json_tokens(a,b,&ca,&cb,&da,&db)) { \
 		fprintf(stderr, "TASSERT_JSON_EQUAL Failed: %s:%s:%d:\n",\
 		        __FILE__,__func__,__LINE__);\
+		/* Print strings with their quotes */ \
+		if ((ta)->type == JSMN_STRING) { \
+			(ta)->start--; \
+			(ta)->end++; \
+		} \
+		if ((tb)->type == JSMN_STRING) { \
+			(tb)->start--; \
+			(tb)->end++; \
+		} \
+		/* Print the difference */ \
 		fprintf(stderr, " > \"%.*s\"\n", (ta)->end-(ta)->start, a+(ta)->start);\
 		fprintf(stderr, " >  ", a);\
 		if (da.start-(ta)->start == db.start-(tb)->start) { \
@@ -1755,6 +1767,179 @@ bool test_SHET_UNPACK_JSON(void) {
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// Test JSON packing macros
+////////////////////////////////////////////////////////////////////////////////
+
+
+bool test_SHET_PACK_JSON_LENGTH(void) {
+	int i1 = INT_MAX;
+	int i2 = INT_MIN;
+	double f1 = 999999999.999999999;
+	double f2 = -999999999.999999999;
+	bool b1 = true;
+	bool b2 = false;
+	const char s1[] = "";
+	const char s2[] = "hello, world!";
+	const char a1[] = "[1,2,3]";
+	const char a2[] = "[3,2,1]";
+	const char o1[] = "{1:2,3:4}";
+	const char o2[] = "{2:1,4:3}";
+	
+	// A large buffer to use for testing
+	char buf[100];
+	
+	
+	// An single char string should be large enough for a null.
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(), 1);
+	
+	// Enough for a big integer
+	sprintf(buf, "%d", i2);
+	TASSERT(SHET_PACK_JSON_LENGTH(i2, SHET_INT) >= strlen(buf) + 1);
+	
+	// Enough for a big float
+	sprintf(buf, "%f", f2);
+	TASSERT(SHET_PACK_JSON_LENGTH(f2, SHET_FLOAT) >= strlen(buf) + 1);
+	
+	// Enough for a bool
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(b1, SHET_BOOL), strlen(b1 ? "true" : "false") + 1);
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(b2, SHET_BOOL), strlen(b2 ? "true" : "false") + 1);
+	
+	// Enough for a null
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(_, SHET_NULL), strlen("null") + 1);
+	
+	// Enough for an empty string
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(s1, SHET_STRING), strlen(s1) + 2 + 1);
+	
+	// Enough for a non-empty string
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(s2, SHET_STRING), strlen(s2) + 2 + 1);
+	
+	// Enough for an array
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(a1, SHET_ARRAY), strlen(a1) + 1);
+	
+	// Enough for an object
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(o1, SHET_OBJECT), strlen(o1) + 1);
+	
+	// Enough for a series of objects (with commas between them)
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(s1, SHET_STRING, s2, SHET_STRING),
+	                  1+ // "
+	                  strlen(s1)+
+	                  1+ // "
+	                  1+ // ,
+	                  1+ // "
+	                  strlen(s2)+
+	                  1+ // "
+	                  1); // \0
+	
+	// Enough for an empty packed array
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(_, SHET_ARRAY_BEGIN, _, SHET_ARRAY_END), 3);
+	
+	// Enough for a series of nested objects (with commas between them)
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(
+		_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_END,
+			_, SHET_ARRAY_END,
+			s1, SHET_STRING,
+			_, SHET_ARRAY_BEGIN,
+				s2, SHET_STRING,
+			_, SHET_ARRAY_END,
+		_, SHET_ARRAY_END),
+		1+ // [
+		4+ // [[]]
+		1+ // ,
+		1+ // "
+		strlen(s1)+
+		1+ // "
+		1+ // ,
+		1+ // [
+		1+ // "
+		strlen(s2)+
+		1+ // "
+		1+ // ]
+		1+ // ]
+		1); // \0
+	
+	return true;
+}
+
+bool test_SHET_PACK_JSON(void) {
+	char buf[100];
+	
+	// An empty value
+	SHET_PACK_JSON(buf);
+	TASSERT(strcmp(buf, "") == 0);
+	
+	// A single Integer
+	SHET_PACK_JSON(buf, 123, SHET_INT);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "123");
+	
+	// A single float
+	SHET_PACK_JSON(buf, 2.5, SHET_FLOAT);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "2.500000");
+	
+	// A single bool
+	SHET_PACK_JSON(buf, true, SHET_BOOL);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "true");
+	
+	// A single null
+	SHET_PACK_JSON(buf, _, SHET_NULL);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "null");
+	
+	// A single string
+	SHET_PACK_JSON(buf, "my string", SHET_STRING);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "\"my string\"");
+	
+	// A single array
+	SHET_PACK_JSON(buf, "[1,2,3]", SHET_ARRAY);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "[1,2,3]");
+	
+	// A single object
+	SHET_PACK_JSON(buf, "{1:2,3:4}", SHET_OBJECT);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "{1:2,3:4}");
+	
+	// A packed empty array
+	SHET_PACK_JSON(buf,
+		_, SHET_ARRAY_BEGIN,
+		_, SHET_ARRAY_END);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "[]");
+	
+	// A packed singleton array
+	SHET_PACK_JSON(buf,
+		_, SHET_ARRAY_BEGIN,
+			1, SHET_INT,
+		_, SHET_ARRAY_END);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "[1]");
+	
+	// A packed single-dimensional array
+	SHET_PACK_JSON(buf,
+		_, SHET_ARRAY_BEGIN,
+			1, SHET_INT,
+			2, SHET_INT,
+			3, SHET_INT,
+		_, SHET_ARRAY_END);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "[1,2,3]");
+	
+	// A nested array
+	SHET_PACK_JSON(buf,
+		_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_BEGIN,
+				_, SHET_ARRAY_BEGIN,
+				_, SHET_ARRAY_END,
+			_, SHET_ARRAY_END,
+			1, SHET_INT,
+			_, SHET_ARRAY_BEGIN,
+				2, SHET_INT,
+			_, SHET_ARRAY_END,
+			3, SHET_INT,
+		_, SHET_ARRAY_END);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "[[[]],1,[2],3]");
+	
+	return true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 // Test EZSHET Watches
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -1918,6 +2103,8 @@ int main(int argc, char *argv[]) {
 		test_shet_make_event,
 		test_shet_watch_event,
 		test_SHET_UNPACK_JSON,
+		test_SHET_PACK_JSON_LENGTH,
+		test_SHET_PACK_JSON,
 		test_EZSHET_WATCH,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);

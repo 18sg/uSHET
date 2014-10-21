@@ -85,9 +85,13 @@
 
 
 /**
- * This macro will expand to nothing.
+ * Macros which expand to common values
  */
 #define EMPTY()
+#define COMMA() ,
+#define PLUS() +
+#define ZERO() 0
+#define ONE() 1
 
 /**
  * Causes a function-style macro to require an additional pass to be expanded.
@@ -137,12 +141,18 @@
  * ensures that the arguments are expanded (once) before concatenation.
  */
 #define CAT(a, ...) a ## __VA_ARGS__
+#define CAT3(a, b, ...) a ## b ## __VA_ARGS__
 
+
+/**
+ * Get the first argument and ignore the rest.
+ */
+#define FIRST(a, ...) a
 
 /**
  * Get the second argument and ignore the rest.
  */
-#define SECOND(x, n, ...) n
+#define SECOND(a, b, ...) b
 
 /**
  * Expects a single input (not containing commas). Returns 1 if the input is
@@ -173,6 +183,24 @@
  * anything and casts it to 0 if it is 0 and 1 otherwise.
  */
 #define BOOL(x) NOT(NOT(x))
+
+/**
+ * Logical OR. Simply performs a lookup.
+ */
+#define OR(a,b) CAT3(_OR_, a, b)
+#define _OR_00 0
+#define _OR_01 1
+#define _OR_10 1
+#define _OR_11 1
+
+/**
+ * Logical AND. Simply performs a lookup.
+ */
+#define AND(a,b) CAT3(_AND_, a, b)
+#define _AND_00 0
+#define _AND_01 0
+#define _AND_10 0
+#define _AND_11 1
 
 
 /**
@@ -215,17 +243,20 @@
  * Macro which checks if it has any arguments. Returns '0' if there are no
  * arguments, '1' otherwise.
  *
+ * Limitation: HAS_ARGS(,1,2,3) returns 0 -- this check essentially only checks
+ * that the first argument exists.
+ *
  * This macro works as follows:
  *
- * 1. The first argument is concatenated with _END_OF_ARGUMENTS_.
- * 2. If the first argument is not present then only _END_OF_ARGUMENTS_ will
- *    remain, otherwise _END_OF_ARGUMENTS_something_here will remain.
+ * 1. _END_OF_ARGUMENTS_ is concatenated with the first argument.
+ * 2. If the first argument is not present then only "_END_OF_ARGUMENTS_" will
+ *    remain, otherwise "_END_OF_ARGUMENTS something_here" will remain.
  * 3. In the former case, the _END_OF_ARGUMENTS_() macro expands to a
  *    0 when it is expanded. In the latter, a non-zero result remains.
  * 4. BOOL is used to force non-zero results into 1 giving the clean 0 or 1
  *    output required.
  */
-#define HAS_ARGS(x, ...) BOOL(CAT(_END_OF_ARGUMENTS_, x)())
+#define HAS_ARGS(...) BOOL(FIRST(_END_OF_ARGUMENTS_ __VA_ARGS__)())
 #define _END_OF_ARGUMENTS_() 0
 
 
@@ -298,7 +329,7 @@
 #define MAP_INNER(op,sep,cur_val, ...) \
   op(cur_val) \
   IF(HAS_ARGS(__VA_ARGS__))( \
-    sep() DEFER2(_MAP_INNER)()(op, sep, __VA_ARGS__) \
+    sep() DEFER2(_MAP_INNER)()(op, sep, ##__VA_ARGS__) \
   )
 #define _MAP_INNER() MAP_INNER
 
@@ -326,11 +357,11 @@
  * The mechanism is analogous to the MAP macro.
  */
 #define MAP_WITH_ID(op,sep,...) \
-  IF(HAS_ARGS(__VA_ARGS__))(EVAL(MAP_WITH_ID_INNER(op,sep,I,__VA_ARGS__)))
+  IF(HAS_ARGS(__VA_ARGS__))(EVAL(MAP_WITH_ID_INNER(op,sep,I, ##__VA_ARGS__)))
 #define MAP_WITH_ID_INNER(op,sep,id,cur_val, ...) \
   op(cur_val,id) \
   IF(HAS_ARGS(__VA_ARGS__))( \
-    sep() DEFER2(_MAP_WITH_ID_INNER)()(op, sep, CAT(id,I), __VA_ARGS__) \
+    sep() DEFER2(_MAP_WITH_ID_INNER)()(op, sep, CAT(id,I), ##__VA_ARGS__) \
   )
 #define _MAP_WITH_ID_INNER() MAP_WITH_ID_INNER
 
@@ -363,5 +394,40 @@
     sep() DEFER2(_MAP_PAIRS_INNER)()(op, sep, __VA_ARGS__) \
   )
 #define _MAP_PAIRS_INNER() MAP_PAIRS_INNER
+
+/**
+ * This is a variant of the MAP macro which iterates over a two-element sliding
+ * window.
+ *
+ * Usage:
+ *   MAP_SLIDE(op, last_op, sep, ...)
+ *
+ * Where op is a macro op(val_1, val_2) which takes the two list values
+ * currently in the window. last_op is a macro taking a single value which is
+ * called for the last argument.
+ *
+ * Example:
+ *
+ *   #define SIMON_SAYS_OP(simon, next) IF(NOT(simon()))(next)
+ *   #define SIMON_SAYS_LAST_OP(val) last_but_not_least_##val
+ *   #define SIMON_SAYS() 0
+ *
+ *   MAP_SLIDE(SIMON_SAYS_OP, SIMON_SAYS_LAST_OP, EMPTY, wiggle, SIMON_SAYS, dance, move, SIMON_SAYS, boogie, stop)
+ *
+ * Which expands to:
+ *
+ *   dance boogie last_but_not_least_stop
+ *
+ * The mechanism is analogous to the MAP macro.
+ */
+#define MAP_SLIDE(op,last_op,sep,...) \
+  IF(HAS_ARGS(__VA_ARGS__))(EVAL(MAP_SLIDE_INNER(op,last_op,sep,__VA_ARGS__)))
+#define MAP_SLIDE_INNER(op,last_op,sep,cur_val, ...) \
+  IF(HAS_ARGS(__VA_ARGS__))(op(cur_val,FIRST(__VA_ARGS__))) \
+  IF(NOT(HAS_ARGS(__VA_ARGS__)))(last_op(cur_val)) \
+  IF(HAS_ARGS(__VA_ARGS__))( \
+    sep() DEFER2(_MAP_SLIDE_INNER)()(op, last_op, sep, __VA_ARGS__) \
+  )
+#define _MAP_SLIDE_INNER() MAP_SLIDE_INNER
 
 #endif
