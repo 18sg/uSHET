@@ -115,8 +115,8 @@ extern "C" {
  *
  * @param path A string literal containing the path of the event to create.
  * @param name The name of the function to be created which raises the event.
- *             This function takes arguments of types as specified below and no
- *             others.
+ *             This function takes a pointer to a shet_state_t followed by
+ *             arguments of the  types as specified below and no others.
  * @param ... The type(s) of the value(s) passed with the event (e.g. SHET_INT).
  *            Can be nothing if no value is expected.
  */
@@ -129,10 +129,12 @@ extern "C" {
  * If multiple source files are used, this will produce the appropriate
  * declarations for the event for a header file.
  *
- * @param name The name of the callback
+ * @param name The name of the callback.
+ * @param ... The type(s) of the value(s) passed with the event (e.g. SHET_INT).
+ *            Can be nothing if no value is expected.
  */
-#define EZSHET_DECLARE_EVENT(name) \
-	_EZSHET_DECLARE_EVENT(name)
+#define EZSHET_DECLARE_EVENT(name, ...) \
+	_EZSHET_DECLARE_EVENT(name, __VA_ARGS__)
 
 
 ////////////////////////////////////////////////////////////////////////////////

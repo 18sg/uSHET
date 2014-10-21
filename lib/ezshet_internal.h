@@ -52,6 +52,10 @@ extern "C" {
 #define _EZSHET_DEFERRED_MAKE_VAR(name) \
 	_ezshet_deferred_make_ ## name
 
+// Variable name used for an item's event variable
+#define _EZSHET_EVENT_VAR(name) \
+	_ezshet_event_ ## name
+
 // Function name for the underlying EZSHET_ADD function
 #define _EZSHET_ADD_FN(name) \
 	_ezshet_add_ ## name
@@ -113,6 +117,7 @@ extern "C" {
 	extern shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
 
 #define _EZSHET_WATCH(path, name, ...) \
+	_EZSHET_DECLARE_WATCH(name); \
 	/* Underlying function for EZSHET_ADD */ \
 	void _EZSHET_ADD_FN(name)(shet_state_t *shet) { \
 		_EZSHET_IS_REGISTERED_VAR(name) = false;\
@@ -132,11 +137,11 @@ extern "C" {
 	void _EZSHET_REMOVE_FN(name)(shet_state_t *shet) { \
 		_EZSHET_IS_REGISTERED_VAR(name) = false;\
 		shet_ignore_event(shet, \
-		                 _ezshet_path_ ## name, \
-		                 NULL, \
-		                 NULL, \
-		                 NULL, \
-		                 NULL); \
+		                  _EZSHET_PATH_VAR(name), \
+		                  NULL, \
+		                  NULL, \
+		                  NULL, \
+		                  NULL); \
 	} \
 	/* Underlying wrapper callback for watch events */ \
 	void _EZSHET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
@@ -169,20 +174,95 @@ extern "C" {
 
 
 ////////////////////////////////////////////////////////////////////////////////
-// Internally-used utility macros
+// Event creation
 ////////////////////////////////////////////////////////////////////////////////
 
-/**
- * This macro is useful when passing a comma as an argument to a macro is desired.
- */
-#define _EZSHET_COMMA() ,
+#define _EZSHET_DECLARE_EVENT(name, ...) \
+	/* Underlying function for EZSHET_ADD */ \
+	void _EZSHET_ADD_FN(name)(shet_state_t *shet); \
+	/* Underlying function for EZSHET_REMOVE */ \
+	void _EZSHET_REMOVE_FN(name)(shet_state_t *shet); \
+	/* Function used to trigger the event */ \
+	void name(shet_state_t *shet _EZSHET_FUNCTION_DEF_VARS(_EZSHET_NAME_TYPES(__VA_ARGS__))); \
+	/* Underlying variable for EZSHET_IS_REGISTERED */ \
+	extern bool _EZSHET_IS_REGISTERED_VAR(name); \
+	/* Underlying variable for EZSHET_ERROR_COUNT */ \
+	extern unsigned int _EZSHET_ERROR_COUNT_VAR(name); \
+	/* Variable storing the path of the event */ \
+	extern const char _EZSHET_PATH_VAR(name)[]; \
+	/* The event struct. */ \
+	extern shet_event_t _EZSHET_EVENT_VAR(name); \
+	/* The deferreds for the event return and its registration. */ \
+	extern shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
+	extern shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
+
+#define _EZSHET_EVENT(path, name, ...) \
+	_EZSHET_DECLARE_EVENT(name, __VA_ARGS__); \
+	/* Underlying function for EZSHET_ADD */ \
+	void _EZSHET_ADD_FN(name)(shet_state_t *shet) { \
+		_EZSHET_IS_REGISTERED_VAR(name) = false; \
+		shet_make_event(shet, \
+		                _EZSHET_PATH_VAR(name), \
+		                &_EZSHET_EVENT_VAR(name), \
+		                &_EZSHET_DEFERRED_MAKE_VAR(name), \
+		                _ezshet_set_is_registered, \
+		                _ezshet_clear_is_registered, \
+		                &_EZSHET_IS_REGISTERED_VAR(name)); \
+	} \
+	/* Underlying function for EZSHET_REMOVE */ \
+	void _EZSHET_REMOVE_FN(name)(shet_state_t *shet) { \
+		_EZSHET_IS_REGISTERED_VAR(name) = false;\
+		shet_remove_event(shet, \
+		                  _EZSHET_PATH_VAR(name), \
+		                  NULL, \
+		                  NULL, \
+		                  NULL, \
+		                  NULL); \
+	} \
+	/* Function used to trigger the event */ \
+	void name(shet_state_t *shet _EZSHET_FUNCTION_DEF_VARS(_EZSHET_NAME_TYPES(__VA_ARGS__))) { \
+		/* Fail if not registered. */ \
+		if (!EZSHET_IS_REGISTERED(name)) { \
+			_ezshet_inc_error_count(NULL, (shet_json_t){NULL,NULL}, \
+			                        (void *)&_EZSHET_ERROR_COUNT_VAR(name)); \
+			return; \
+		} \
+		/* Encode each argument as a JSON string. */ \
+		char value[SHET_PACK_JSON_LENGTH(_EZSHET_NAME_TYPES(__VA_ARGS__))]; \
+		SHET_PACK_JSON(value, _EZSHET_NAME_TYPES(__VA_ARGS__)); \
+		/* Join the JSON string together. */ \
+		/* Raise the event in SHET. */ \
+		shet_raise_event(shet, \
+		                 _EZSHET_PATH_VAR(name), \
+		                 value, \
+		                 &_EZSHET_DEFERRED_VAR(name), \
+		                 NULL, \
+		                 _ezshet_inc_error_count, \
+		                 &_EZSHET_ERROR_COUNT_VAR(name)); \
+	} \
+	/* Underlying variable for EZSHET_IS_REGISTERED */ \
+	bool _EZSHET_IS_REGISTERED_VAR(name) = false; \
+	/* Underlying variable for EZSHET_ERROR_COUNT */ \
+	unsigned int _EZSHET_ERROR_COUNT_VAR(name) = 0; \
+	/* Variable storing the path of the event */ \
+	const char _EZSHET_PATH_VAR(name)[] = path; \
+	/* The event struct. */ \
+	shet_event_t _EZSHET_EVENT_VAR(name); \
+	/* The deferreds for the event return and its registration. */ \
+	shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
+	shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Internally-used utility macros
+////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Given a list of types (e.g. SHET_INT), returns a new list prefixed with
  * SHET_ARRAY_BEGIN and postfixed with SHET_ARRAY_END.
  */
 #define _EZSHET_WRAP_IN_ARRAY(...) \
-	SHET_ARRAY_BEGIN IF(HAS_ARGS(__VA_ARGS__))(_EZSHET_COMMA() __VA_ARGS__), SHET_ARRAY_END
+	SHET_ARRAY_BEGIN IF(HAS_ARGS(__VA_ARGS__))(COMMA() __VA_ARGS__), SHET_ARRAY_END
 
 
 /**
@@ -190,7 +270,7 @@ extern "C" {
  * each of the original inputs with an automatically chosen name.
  */
 #define _EZSHET_NAME_TYPES(...) \
-	MAP_WITH_ID(_EZSHET_NAME_TYPES_OP, _EZSHET_COMMA, __VA_ARGS__)
+	MAP_WITH_ID(_EZSHET_NAME_TYPES_OP, COMMA, __VA_ARGS__)
 
 #define _EZSHET_NAME_TYPES_OP(type, name) \
 	name, type
@@ -218,7 +298,20 @@ extern "C" {
 	MAP_PAIRS(_EZSHET_ARGS_VARS_OP, EMPTY, __VA_ARGS__)
 
 #define _EZSHET_ARGS_VARS_OP(name, type) \
-	IF(SHET_HAS_JSON_PARSED_TYPE(type))(_EZSHET_COMMA() name)
+	IF(SHET_HAS_JSON_PARSED_TYPE(type))(COMMA() name)
+
+
+/**
+ * Given an alternating list of names and types (e.g. SHET_INT), produce a list
+ * of typed function call arguments (e.g. , int my_int, const char *my_char) for
+ * the entities whose types are not SHET_NULL etc. Arguments will have commas
+ * inserted before them.
+ */
+#define _EZSHET_FUNCTION_DEF_VARS(...) \
+	MAP_PAIRS(_EZSHET_FUNCTION_DEF_VARS_OP, EMPTY, __VA_ARGS__)
+
+#define _EZSHET_FUNCTION_DEF_VARS_OP(name, type) \
+	IF(SHET_HAS_JSON_PARSED_TYPE(type))(, SHET_GET_JSON_ENCODED_TYPE(type) name)
 
 
 /**
@@ -252,8 +345,6 @@ extern "C" {
 #define _EZSHET_ERROR_MSG_SHET_ARRAY_BEGIN()  "["
 #define _EZSHET_ERROR_MSG_SHET_ARRAY_END()    "]"
 #define _EZSHET_ERROR_MSG_SHET_OBJECT()       "object"
-#define _EZSHET_ERROR_MSG_SHET_OBJECT_BEGIN() "{"
-#define _EZSHET_ERROR_MSG_SHET_OBJECT_END()   "}"
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -271,6 +362,11 @@ void _ezshet_set_is_registered(shet_state_t *shet, shet_json_t json, void *_is_r
  * to by the user argument to 'false'.
  */
 void _ezshet_clear_is_registered(shet_state_t *shet, shet_json_t json, void *_is_registered);
+
+/**
+ * Increment an error counter given as the user argument.
+ */
+void _ezshet_inc_error_count(shet_state_t *shet, shet_json_t json, void *_error_count);
 
 
 #ifdef __cplusplus

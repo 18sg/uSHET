@@ -1971,8 +1971,7 @@ void ez_watch_args(shet_state_t *shet, int i, double f, bool b, const char *s, i
 	ez_watch_args_array = a;
 	ez_watch_args_object = o;
 }
-EZSHET_DECLARE_WATCH(ez_watch_args);
-EZSHET_DECLARE_WATCH(ez_watch_args);
+// This time don't declare the watch and make sure it still works
 EZSHET_WATCH("/ez_watch_args", ez_watch_args,
 	SHET_INT,
 	SHET_FLOAT,
@@ -2078,6 +2077,147 @@ bool test_EZSHET_WATCH(void) {
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// Test EZSHET Events
+////////////////////////////////////////////////////////////////////////////////
+
+// Create an event with no arguments. Also test no-declaration is fine.
+EZSHET_EVENT("/ez_event", ez_event);
+
+// An event with arguments of every type. Ensure double-declaration is OK.
+EZSHET_DECLARE_EVENT(ez_event_args,
+	SHET_ARRAY_BEGIN,
+		SHET_ARRAY_BEGIN,
+			SHET_INT,
+		SHET_ARRAY_END,
+		SHET_FLOAT,
+	SHET_ARRAY_END,
+	SHET_NULL,
+	SHET_BOOL,
+	SHET_STRING,
+	SHET_ARRAY,
+	SHET_OBJECT);
+EZSHET_DECLARE_EVENT(ez_event_args,
+	SHET_ARRAY_BEGIN,
+		SHET_ARRAY_BEGIN,
+			SHET_INT,
+		SHET_ARRAY_END,
+		SHET_FLOAT,
+	SHET_ARRAY_END,
+	SHET_NULL,
+	SHET_BOOL,
+	SHET_STRING,
+	SHET_ARRAY,
+	SHET_OBJECT);
+EZSHET_EVENT("/ez_event_args", ez_event_args,
+	SHET_ARRAY_BEGIN,
+		SHET_ARRAY_BEGIN,
+			SHET_INT,
+		SHET_ARRAY_END,
+		SHET_FLOAT,
+	SHET_ARRAY_END,
+	SHET_NULL,
+	SHET_BOOL,
+	SHET_STRING,
+	SHET_ARRAY,
+	SHET_OBJECT);
+
+
+bool test_EZSHET_EVENT(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test that events can't be sent yet
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 0);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 1);
+	TASSERT_INT_EQUAL(transmit_count, 1);
+	
+	// Test that registration sends a request
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	EZSHET_ADD(&state, ez_event);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkevent\",\"/ez_event\"]");
+	
+	// Test that events still can't be sent
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 1);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 2);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	
+	// Test that registration can fail
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	char line1[] = "[1, \"return\", 1, \"fail\"]";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	
+	// Test that events still can't be sent
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 2);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	
+	// Test that registration can work
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	EZSHET_ADD(&state, ez_event);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"mkevent\",\"/ez_event\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	char line2[] = "[2, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_event));
+	
+	// Test that events can (finally) be sent
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"raise\",\"/ez_event\"]");
+	
+	// ...and that it wasn't just a fluke!
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"raise\",\"/ez_event\"]");
+	
+	// Make sure events can be removed
+	TASSERT(EZSHET_IS_REGISTERED(ez_event));
+	EZSHET_REMOVE(&state, ez_event);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"rmevent\",\"/ez_event\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	
+	// Test that the event doesn't work any more
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 4);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	
+	// Test that registration sends a request
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event_args));
+	EZSHET_ADD(&state, ez_event_args);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"mkevent\",\"/ez_event_args\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event_args));
+	char line3[] = "[6, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_event_args));
+	
+	// Test that the event works
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event_args), 0);
+	ez_event_args(&state, 1, 2.5, true, "hello, world", "[1,2,3]", "{1:2,3:4}");
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event_args), 0);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[7,\"raise\",\"/ez_event_args\","
+		" [[1], 2.500000], null, true, \"hello, world\", [1,2,3], {1:2,3:4}]");
+	
+	
+	return true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 // World starts here
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -2106,6 +2246,7 @@ int main(int argc, char *argv[]) {
 		test_SHET_PACK_JSON_LENGTH,
 		test_SHET_PACK_JSON,
 		test_EZSHET_WATCH,
+		test_EZSHET_EVENT,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	

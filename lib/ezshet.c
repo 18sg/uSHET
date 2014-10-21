@@ -9,3 +9,8 @@ void _ezshet_clear_is_registered(shet_state_t *shet, shet_json_t json, void *_is
 	bool *is_registered = (bool *)_is_registered;
 	*is_registered = false;
 }
+
+void _ezshet_inc_error_count(shet_state_t *shet, shet_json_t json, void *_error_count) {
+	unsigned int *error_count = (unsigned int *)_error_count;
+	(*error_count)++;
+}
