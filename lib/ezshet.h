@@ -174,7 +174,7 @@ extern "C" {
  *             values via return-pointer arguments.
  */
 #define EZSHET_PROP(path, name, type, ...) \
-	_EZSHET_PROP(path, name, type, ...)
+	_EZSHET_PROP(path, name, type, __VA_ARGS__)
 
 /**
  * Generate a C declaration for the property.

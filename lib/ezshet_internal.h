@@ -254,6 +254,133 @@ extern "C" {
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// Property Creation
+////////////////////////////////////////////////////////////////////////////////
+
+#define _EZSHET_DECLARE_PROP(name) \
+	/* Underlying function for EZSHET_ADD */ \
+	void _EZSHET_ADD_FN(name)(shet_state_t *shet); \
+	/* Underlying function for EZSHET_REMOVE */ \
+	void _EZSHET_REMOVE_FN(name)(shet_state_t *shet); \
+	/* Underlying wrapper callback for the getting/setting property */ \
+	void _EZSHET_GET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data); \
+	void _EZSHET_SET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data); \
+	/* Underlying variable for EZSHET_IS_REGISTERED */ \
+	extern bool _EZSHET_IS_REGISTERED_VAR(name); \
+	/* Underlying variable for EZSHET_ERROR_COUNT */ \
+	extern unsigned int _EZSHET_ERROR_COUNT_VAR(name); \
+	/* Variable storing the path of the property */ \
+	extern const char _EZSHET_PATH_VAR(name)[]; \
+	/* The deferreds for the event and its registration. */ \
+	extern shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
+	extern shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
+
+#define _EZSHET_PROP(path, name, type, ...) \
+	_EZSHET_DECLARE_PROP(name); \
+	/* Underlying function for EZSHET_ADD */ \
+	void _EZSHET_ADD_FN(name)(shet_state_t *shet) { \
+		_EZSHET_IS_REGISTERED_VAR(name) = false;\
+		shet_make_prop(shet, \
+		               _EZSHET_PATH_VAR(name), \
+		               &_EZSHET_DEFERRED_VAR(name), \
+		               _EZSHET_GET_WRAPPER_FN(name), \
+		               _EZSHET_SET_WRAPPER_FN(name), \
+		               NULL, \
+		               &_EZSHET_DEFERRED_MAKE_VAR(name), \
+		               _ezshet_set_is_registered, \
+		               _ezshet_clear_is_registered, \
+		               &_EZSHET_IS_REGISTERED_VAR(name)); \
+	} \
+	/* Underlying function for EZSHET_REMOVE */ \
+	void _EZSHET_REMOVE_FN(name)(shet_state_t *shet) { \
+		_EZSHET_IS_REGISTERED_VAR(name) = false;\
+		shet_remove_prop(shet, \
+		                 _EZSHET_PATH_VAR(name), \
+		                 NULL, \
+		                 NULL, \
+		                 NULL, \
+		                 NULL); \
+	} \
+	/* Underlying wrapper callback for property getter */ \
+	void _EZSHET_GET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
+		/* Create return variables for the getter. */ \
+		_EZSHET_DEFINE_RETURN_VARS( \
+			_EZSHET_NAME_RETURN_TYPES(type, __VA_ARGS__)); \
+		/* Execute the callback and send the return via SHET. */ \
+		/* Store the callback value (if only one type is given and that type can be
+		 * returned). */ \
+		IF(AND(NOT(HAS_ARGS(__VA_ARGS__)), SHET_HAS_JSON_PARSED_TYPE(type)))( \
+			SHET_GET_JSON_PARSED_TYPE(type) ret_val = )\
+		/* Execute the callback. */ \
+		CAT(get_,name)(shet \
+		     /* Pass return arguments if required. */ \
+		     IF(HAS_ARGS(__VA_ARGS__))( \
+		       _EZSHET_RETURN_ARGS_VARS( \
+		         _EZSHET_NAME_RETURN_TYPES(type,__VA_ARGS__)))); \
+		/* Pack a returned value. */ \
+		IF(NOT(HAS_ARGS(__VA_ARGS__)))( \
+			char packed_ret_val[SHET_PACK_JSON_LENGTH(ret_val, type)]; \
+			SHET_PACK_JSON(packed_ret_val, ret_val, type); \
+		) \
+		/* Pack an argument-returned value. */ \
+		IF(HAS_ARGS(__VA_ARGS__))( \
+			char packed_ret_val[ \
+				SHET_PACK_JSON_LENGTH( \
+					_EZSHET_NAME_RETURN_TYPES(type, __VA_ARGS__)) \
+			]; \
+			SHET_PACK_JSON(packed_ret_val, \
+				_EZSHET_NAME_RETURN_TYPES(type, __VA_ARGS__)); \
+		) \
+		/* Send the response to SHET. */ \
+		shet_return(shet, 0, packed_ret_val); \
+	} \
+	/* Underlying wrapper callback for property setter */ \
+	void _EZSHET_SET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
+		/* Create variables to unpack the JSON into. */ \
+		_EZSHET_DEFINE_VARS( \
+			_EZSHET_NAME_TYPES( \
+				IF(HAS_ARGS(__VA_ARGS__))(_EZSHET_WRAP_IN_ARRAY(type,__VA_ARGS__)) \
+				IF(NOT(HAS_ARGS(__VA_ARGS__)))(_EZSHET_WRAP_IN_ARRAY(type)) \
+			)); \
+		/* Unpack the JSON. */ \
+		bool error = false; \
+		SHET_UNPACK_JSON(json, error=true;, \
+			_EZSHET_NAME_TYPES( \
+				IF(HAS_ARGS(__VA_ARGS__))(_EZSHET_WRAP_IN_ARRAY(type,__VA_ARGS__)) \
+				IF(NOT(HAS_ARGS(__VA_ARGS__)))(_EZSHET_WRAP_IN_ARRAY(type)) \
+			)); \
+		/* Execute the callback and send the return via SHET. */ \
+		if (!error) { \
+			/* Execute the callback. */ \
+			CAT(set_,name)(shet \
+			     /* Pass arguments. */ \
+			     _EZSHET_ARGS_VARS( \
+			       _EZSHET_NAME_TYPES( \
+			         IF(HAS_ARGS(__VA_ARGS__))(_EZSHET_WRAP_IN_ARRAY(type,__VA_ARGS__)) \
+			         IF(NOT(HAS_ARGS(__VA_ARGS__)))(_EZSHET_WRAP_IN_ARRAY(type)) \
+			       ))); \
+			/* Send success to SHET. */ \
+			shet_return(shet, 0, NULL); \
+		} else { \
+			static const char err_message[] = \
+				_EZSHET_ERROR_MSG(type, __VA_ARGS__); \
+			_EZSHET_ERROR_COUNT_VAR(name)++; \
+			shet_return(shet, 1, err_message); \
+		} \
+	} \
+	/* Underlying variable for EZSHET_IS_REGISTERED */ \
+	bool _EZSHET_IS_REGISTERED_VAR(name) = false; \
+	/* Underlying variable for EZSHET_ERROR_COUNT */ \
+	unsigned int _EZSHET_ERROR_COUNT_VAR(name) = 0; \
+	/* Variable storing the path of the action */ \
+	const char _EZSHET_PATH_VAR(name)[] = path; \
+	/* The deferreds for the event and its registration. */ \
+	shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
+	shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
+
+
+
+////////////////////////////////////////////////////////////////////////////////
 // Action Creation
 ////////////////////////////////////////////////////////////////////////////////
 

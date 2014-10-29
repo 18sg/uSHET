@@ -588,6 +588,12 @@ static inline const char *_shet_parse_shet_string(shet_json_t json) {
  */
 shet_json_t shet_next_token(shet_json_t json);
 
+/**
+ * Get the total number of tokens in the passed JSON, including those within
+ * compound objects. Note: this function does not do any bounds checking!
+ */
+unsigned int shet_count_tokens(shet_json_t json);
+
 #ifdef __cplusplus
 }
 #endif

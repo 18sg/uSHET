@@ -1,6 +1,6 @@
 /**
- * A test suite for uSHET. Only tests functionality of underlying protocol
- * implementation. Does not test any wrappers.
+ * A test suite for uSHET. Tests functionality of underlying protocol
+ * implementation and API but does not test network connectivity etc.
  */
 
 #include <stdio.h>
@@ -2218,6 +2218,240 @@ bool test_EZSHET_EVENT(void) {
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// Test EZSHET Properties
+////////////////////////////////////////////////////////////////////////////////
+
+// Create a property with a single value
+unsigned int get_ez_prop_count = 0;
+unsigned int set_ez_prop_count = 0;
+int ez_prop_value = 0;
+int get_ez_prop(shet_state_t *shet) {
+	get_ez_prop_count++;
+	return ez_prop_value;
+}
+void set_ez_prop(shet_state_t *shet, int value) {
+	set_ez_prop_count++;
+	ez_prop_value = value;
+}
+EZSHET_DECLARE_PROP(ez_prop);
+EZSHET_DECLARE_PROP(ez_prop);
+EZSHET_PROP("/ez_prop", ez_prop, SHET_INT);
+
+
+// Create a property with a non-repreesnted value, i.e. null
+unsigned int get_ez_prop_null_count = 0;
+unsigned int set_ez_prop_null_count = 0;
+void get_ez_prop_null(shet_state_t *shet) {
+	get_ez_prop_null_count++;
+}
+void set_ez_prop_null(shet_state_t *shet) {
+	set_ez_prop_null_count++;
+}
+EZSHET_PROP("/ez_prop_null", ez_prop_null, SHET_NULL);
+
+// Create a property with an expanded value with many types
+unsigned int get_ez_prop_expanded_count = 0;
+unsigned int set_ez_prop_expanded_count = 0;
+int ez_prop_expanded_int = 0;
+double ez_prop_expanded_float = 0.0;
+bool ez_prop_expanded_bool = false;
+char ez_prop_expanded_string[100];
+char ez_prop_expanded_array_json[100];
+jsmntok_t ez_prop_expanded_array_tokens[100];
+shet_json_t ez_prop_expanded_array = {ez_prop_expanded_array_json, ez_prop_expanded_array_tokens};
+char ez_prop_expanded_object_json[100];
+jsmntok_t ez_prop_expanded_object_tokens[100];
+shet_json_t ez_prop_expanded_object = {ez_prop_expanded_object_json, ez_prop_expanded_object_tokens};
+void get_ez_prop_expanded(shet_state_t *shet, int *i, double *f, bool *b, const char **s, const char **a, const char **o) {
+	*i = ez_prop_expanded_int;
+	*f = ez_prop_expanded_float;
+	*b = ez_prop_expanded_bool;
+	*s = ez_prop_expanded_string;
+	*a = ez_prop_expanded_array.line + ez_prop_expanded_array.token->start;
+	*o = ez_prop_expanded_object.line + ez_prop_expanded_object.token->start;
+	get_ez_prop_expanded_count++;
+}
+void set_ez_prop_expanded(shet_state_t *shet, int i, double f, bool b, const char *s, shet_json_t a, shet_json_t o) {
+	ez_prop_expanded_int    = i;
+	ez_prop_expanded_float  = f;
+	ez_prop_expanded_bool   = b;
+	strcpy(ez_prop_expanded_string, s);
+	memcpy(ez_prop_expanded_array_json, a.line,
+	       a.token->end * sizeof(char));
+	ez_prop_expanded_array_json[a.token->end] = '\0';
+	memcpy(ez_prop_expanded_array_tokens, a.token,
+	       shet_count_tokens(a) * sizeof(shet_json_t));
+	memcpy(ez_prop_expanded_object_json, o.line,
+	       o.token->end * sizeof(char));
+	ez_prop_expanded_object_json[o.token->end] = '\0';
+	memcpy(ez_prop_expanded_object_tokens, o.token,
+	       shet_count_tokens(o) * sizeof(shet_json_t));
+	
+	set_ez_prop_expanded_count++;
+}
+EZSHET_DECLARE_PROP(ez_prop_expanded);
+EZSHET_DECLARE_PROP(ez_prop_expanded);
+EZSHET_PROP("/ez_prop_expanded", ez_prop_expanded,
+	SHET_ARRAY_BEGIN,
+		SHET_ARRAY_BEGIN,
+			SHET_INT,
+			SHET_ARRAY_BEGIN,
+			SHET_ARRAY_END,
+		SHET_ARRAY_END,
+		SHET_FLOAT,
+		SHET_BOOL,
+		SHET_NULL,
+		SHET_STRING,
+		SHET_ARRAY,
+		SHET_OBJECT,
+	SHET_ARRAY_END
+);
+
+
+bool test_EZSHET_PROP(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test that registration works
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
+	EZSHET_ADD(&state, ez_prop);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkprop\",\"/ez_prop\"]");
+	
+	// Test that it does not appear if registration fails
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
+	char line1[] = "[1, \"return\", 1, \"fail\"]";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
+	
+	// Test that registration works when it does not fail
+	EZSHET_ADD(&state, ez_prop);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"mkprop\",\"/ez_prop\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
+	char line2[] = "[2, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_prop));
+	
+	// Test that the setter works
+	TASSERT_INT_EQUAL(set_ez_prop_count, 0);
+	TASSERT_INT_EQUAL(get_ez_prop_count, 0);
+	char line3[] = "[1, \"setprop\", \"/ez_prop\", 123]";
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(set_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_count, 0);
+	TASSERT_INT_EQUAL(ez_prop_value, 123);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
+	
+	// Test that the getter works
+	TASSERT_INT_EQUAL(get_ez_prop_count, 0);
+	TASSERT_INT_EQUAL(set_ez_prop_count, 1);
+	char line4[] = "[1, \"getprop\", \"/ez_prop\"]";
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(get_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(set_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(ez_prop_value, 123);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,123]");
+	
+	// Test that the setter fails with wrong argument type
+	TASSERT_INT_EQUAL(set_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_prop), 0);
+	char line5[] = "[1, \"setprop\", \"/ez_prop\", false]";
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(set_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_prop), 1);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",1,\"Expected int\"]");
+	
+	// Test that the property can be unregistered
+	EZSHET_REMOVE(&state, ez_prop);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmprop\",\"/ez_prop\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
+	
+	// Test that null properties work
+	EZSHET_ADD(&state, ez_prop_null);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"mkprop\",\"/ez_prop_null\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop_null));
+	char line6[] = "[4, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_prop_null));
+	
+	// Test that the setter works
+	TASSERT_INT_EQUAL(set_ez_prop_null_count, 0);
+	TASSERT_INT_EQUAL(get_ez_prop_null_count, 0);
+	char line7[] = "[1, \"setprop\", \"/ez_prop_null\", null]";
+	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(set_ez_prop_null_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_null_count, 0);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
+	
+	// Test that the getter works
+	TASSERT_INT_EQUAL(get_ez_prop_null_count, 0);
+	TASSERT_INT_EQUAL(set_ez_prop_null_count, 1);
+	char line8[] = "[1, \"getprop\", \"/ez_prop_null\"]";
+	TASSERT(shet_process_line(&state, line8, strlen(line8)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(get_ez_prop_null_count, 1);
+	TASSERT_INT_EQUAL(set_ez_prop_null_count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 10);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
+	
+	// Unregister now we're done with it
+	EZSHET_REMOVE(&state, ez_prop_null);
+	TASSERT_INT_EQUAL(transmit_count, 11);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"rmprop\",\"/ez_prop_null\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop_null));
+	
+	// Test that properties with many expanded values work
+	EZSHET_ADD(&state, ez_prop_expanded);
+	TASSERT_INT_EQUAL(transmit_count, 12);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"mkprop\",\"/ez_prop_expanded\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop_null));
+	char line9[] = "[6, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line9, strlen(line9)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_prop_expanded));
+	
+	// Test that the setter works
+	TASSERT_INT_EQUAL(set_ez_prop_expanded_count, 0);
+	TASSERT_INT_EQUAL(get_ez_prop_expanded_count, 0);
+	char line10[] = "[1, \"setprop\", \"/ez_prop_expanded\", "
+	                  "[[123,[]], 2.5, true, null, \"test\", [1,2,3], {1:2,3:4}]"
+	                "]";
+	TASSERT(shet_process_line(&state, line10, strlen(line10)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(set_ez_prop_expanded_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_expanded_count, 0);
+	TASSERT_INT_EQUAL(transmit_count, 13);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
+	TASSERT_INT_EQUAL(ez_prop_expanded_int, 123);
+	TASSERT(ez_prop_expanded_float == 2.5);
+	TASSERT(ez_prop_expanded_bool == true);
+	TASSERT(strcmp(ez_prop_expanded_string, "test") == 0);
+	TASSERT_JSON_EQUAL_TOK_STR(ez_prop_expanded_array, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(ez_prop_expanded_object, "{1:2,3:4}");
+	
+	// Test that the getter works
+	TASSERT_INT_EQUAL(set_ez_prop_expanded_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_expanded_count, 0);
+	char line11[] = "[1, \"getprop\", \"/ez_prop_expanded\"]";
+	TASSERT(shet_process_line(&state, line11, strlen(line11)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(set_ez_prop_expanded_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_expanded_count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 14);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,"
+		"[[123,[]], 2.500000, true, null, \"test\", [1,2,3], {1:2,3:4}]"
+		"]");
+	
+	return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Test EZSHET Actions
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -2461,6 +2695,7 @@ int main(int argc, char *argv[]) {
 		test_EZSHET_WATCH,
 		test_EZSHET_EVENT,
 		test_EZSHET_ACTION,
+		test_EZSHET_PROP,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	

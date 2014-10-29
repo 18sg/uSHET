@@ -21,3 +21,19 @@ shet_json_t shet_next_token(shet_json_t json) {
 			return json;
 	}
 }
+
+
+unsigned int shet_count_tokens(shet_json_t json) {
+	switch (json.token->type) {
+		case JSMN_PRIMITIVE:
+		case JSMN_STRING:
+			return 1;
+		
+		case JSMN_ARRAY:
+		case JSMN_OBJECT:
+			return shet_next_token(json).token - json.token;
+		
+		default:
+			return 0;
+	}
+}
