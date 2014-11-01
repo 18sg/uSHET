@@ -68,18 +68,20 @@ extern "C" {
 
 
 ////////////////////////////////////////////////////////////////////////////////
-// JSON type to C type mapping.
+// JSON-type to C-type mapping.
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
- * Get the C type produced when parsing a given JSON type.
+ * Get the C type produced when parsing a given JSON type using
+ * SHET_PARSE_JSON_VALUE.
+ *
+ * Note that NULL and unpacked array types are not defined since they do not
+ * correspond to any C value.
  *
  * This macro is mostly intended for use by other macros; end users are advised
  * to just write the types by hand on account of their obviousness!
  *
- * Note that NULL and the array/object unpacking types are not defined.
- *
- * @param type One of the type macros above specifying the type of the value.
+ * @param type A type macro (e.g. SHET_INT).
  * @returns The equivalent C type.
  */
 #define SHET_GET_JSON_PARSED_TYPE(type) \
@@ -94,7 +96,8 @@ extern "C" {
 
 
 /**
- * Get the C types which are expected when encoding a given JSON type.
+ * Get the C types which are expected when encoding a given JSON type using
+ * SHET_ENCODE_JSON_VALUE.
  *
  * Note: JSON compound types (i.e. arrays and objects) cannot be encoded since
  * they have no obvious analogue in C. Instead they are expected to be
@@ -103,7 +106,7 @@ extern "C" {
  * This macro is mostly intended for use by other macros; end users are advised
  * to just write the types by hand on account of their obviousness!
  *
- * @param type One of the type macros above specifying the type of the value.
+ * @param type A type macro (e.g. SHET_INT).
  * @returns The equivalent C type.
  */
 #define SHET_GET_JSON_ENCODED_TYPE(type) \
@@ -115,6 +118,7 @@ extern "C" {
 #define _SHET_GET_JSON_ENCODED_TYPE_SHET_STRING() const char *
 #define _SHET_GET_JSON_ENCODED_TYPE_SHET_ARRAY()  const char *
 #define _SHET_GET_JSON_ENCODED_TYPE_SHET_OBJECT() const char *
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // JSON Type-checking
