@@ -1,16 +1,18 @@
 /**
- * A test suite for uSHET. Only tests functionality of underlying protocol
- * implementation. Does not test any wrappers.
+ * A test suite for uSHET. Tests functionality of underlying protocol
+ * implementation and API but does not test network connectivity etc.
  */
 
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#include <limits.h>
 
 // Include the C files so that static functions can be tested
-#include "lib/shet.c"
 #include "lib/jsmn.c"
-
+#include "lib/shet.c"
+#include "lib/shet_json.c"
+#include "lib/ezshet.c"
 
 ////////////////////////////////////////////////////////////////////////////////
 // JSON test utilities
@@ -34,7 +36,9 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	// Compare atomic objects
 	} else if ((*tokens_a)->type == JSMN_PRIMITIVE ||
 	           (*tokens_a)->type == JSMN_STRING) {
-		if (strncmp(json_a+(*tokens_a)->start,
+		if ( ((*tokens_a)->end - (*tokens_a)->start) !=
+		     ((*tokens_b)->end - (*tokens_b)->start) ||
+		    strncmp(json_a+(*tokens_a)->start,
 		            json_b+(*tokens_b)->start,
 		            (*tokens_a)->end - (*tokens_a)->start) != 0) {
 			if (differing_a != NULL) *differing_a = **tokens_a;
@@ -51,7 +55,8 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 		int size = (**tokens_a).size;
 		(*tokens_a)++;
 		(*tokens_b)++;
-		for (int i = 0; i < size; i++)
+		int i;
+		for (i = 0; i < size; i++)
 			if (!cmp_json_tokens(json_a, json_b,
 			                     tokens_a, tokens_b,
 			                     differing_a, differing_b))
@@ -82,9 +87,13 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 } } while (0)
 
 // Compare two JSON strings given as a set of tokens and assert that they are
-// equivilent. If they are not, prints the two strings along with an indicator
+// equivalent. If they are not, prints the two strings along with an indicator
 // pointing at the first non-matching parts.
-#define TASSERT_JSON_EQUAL_TOK_TOK(sa,ta,sb,tb) do { \
+#define TASSERT_JSON_EQUAL_TOK_TOK(ja,jb) do { \
+	char *sa = ja.line;\
+	jsmntok_t *ta = ja.token;\
+	char *sb = jb.line;\
+	jsmntok_t *tb = jb.token;\
 	TASSERT((sa) != NULL);\
 	TASSERT((ta) != NULL);\
 	TASSERT((sb) != NULL);\
@@ -100,20 +109,33 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	if (!cmp_json_tokens(a,b,&ca,&cb,&da,&db)) { \
 		fprintf(stderr, "TASSERT_JSON_EQUAL Failed: %s:%s:%d:\n",\
 		        __FILE__,__func__,__LINE__);\
+		/* Print strings with their quotes */ \
+		if ((ta)->type == JSMN_STRING) { \
+			(ta)->start--; \
+			(ta)->end++; \
+		} \
+		if ((tb)->type == JSMN_STRING) { \
+			(tb)->start--; \
+			(tb)->end++; \
+		} \
+		/* Print the difference */ \
 		fprintf(stderr, " > \"%.*s\"\n", (ta)->end-(ta)->start, a+(ta)->start);\
-		fprintf(stderr, " >  ", a);\
+		fprintf(stderr, " >  ");\
 		if (da.start-(ta)->start == db.start-(tb)->start) { \
-			for (int i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
+			int i; \
+			for (i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "|\n"); \
 		} else if (da.start-(ta)->start < db.start-(tb)->start) { \
-			for (int i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
+			int i; \
+			for (i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "^"); \
-			for (int i = da.start-(ta)->start; i < db.start-(tb)->start-1; i++) fprintf(stderr, "-"); \
+			for (i = da.start-(ta)->start; i < db.start-(tb)->start-1; i++) fprintf(stderr, "-"); \
 			fprintf(stderr, "v\n"); \
 		} else { \
-			for (int i = (tb)->start; i < db.start-(tb)->start; i++) fprintf(stderr, " "); \
+			int i; \
+			for (i = (tb)->start; i < db.start-(tb)->start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "v"); \
-			for (int i = db.start-(tb)->start; i < da.start-(ta)->start-1; i++) fprintf(stderr, "-"); \
+			for (i = db.start-(tb)->start; i < da.start-(ta)->start-1; i++) fprintf(stderr, "-"); \
 			fprintf(stderr, "^\n"); \
 		} \
 		fprintf(stderr, " > \"%.*s\"\n", (tb)->end-(tb)->start, b+(tb)->start);\
@@ -124,18 +146,23 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 
 // Compare two JSON strings the first given as a string and token and the other
 // as a string and assert that they are equivilent.
-#define TASSERT_JSON_EQUAL_TOK_STR(sa,ta,sb) do { \
+#define TASSERT_JSON_EQUAL_TOK_STR(ja,sb) do { \
 	jsmn_parser p; \
 	jsmn_init(&p); \
 	jsmntok_t tb[100]; \
-	jsmnerr_t e = jsmn_parse(&p, sb, strlen(sb), \
+	jsmnerr_t e = jsmn_parse(&p, (sb), strlen((sb)), \
 	                         tb, 100); \
 	if (e <= 0) { \
 		fprintf(stderr, "TASSERT_JSON_EQUAL Could not parse JSON: %s:%s:%d: %s\n",\
-		        __FILE__,__func__,__LINE__,sa); \
+		        __FILE__,__func__,__LINE__,(sb)); \
 		return false; \
 	} \
-	TASSERT_JSON_EQUAL_TOK_TOK(sa, ta, sb, tb);\
+	shet_json_t jb; \
+	/* XXX: Cast off the const for shet_json_t. This macro is known not to modify
+	 * the string. */ \
+	jb.line = (char *)(sb); \
+	jb.token = tb; \
+	TASSERT_JSON_EQUAL_TOK_TOK((ja), jb);\
 } while (0)
 
 
@@ -144,14 +171,19 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 	jsmn_parser p; \
 	jsmn_init(&p); \
 	jsmntok_t ta[100]; \
-	jsmnerr_t e = jsmn_parse(&p, sa, strlen(sa), \
+	jsmnerr_t e = jsmn_parse(&p, (sa), strlen((sa)), \
 	                         ta, 100); \
 	if (e <= 0) { \
 		fprintf(stderr, "TASSERT_JSON_EQUAL Could not parse JSON: %s:%s:%d: %s\n",\
-		        __FILE__,__func__,__LINE__,sa); \
+		        __FILE__,__func__,__LINE__,(sa)); \
 		return false; \
 	} \
-	TASSERT_JSON_EQUAL_TOK_STR(sa, ta, sb);\
+	shet_json_t ja; \
+	/* XXX: Cast off the const for shet_json_t. This macro is known not to modify
+	 * the string. */ \
+	ja.line = (char *)(sa); \
+	ja.token = ta; \
+	TASSERT_JSON_EQUAL_TOK_STR(ja, (sb));\
 } while (0)
 
 
@@ -184,18 +216,16 @@ static void transmit_cb(const char *data, void *user_data) {
 // callback_result_t structure pointed to by the user variable.
 typedef struct {
 	shet_state_t *state;
-	char *line;
-	jsmntok_t *token;
+	shet_json_t json;
 	int count;
 	const char *return_value;
 } callback_result_t;
 
-static void callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
+static void callback(shet_state_t *state, shet_json_t json, void *user_data) {
 	callback_result_t *result = (callback_result_t *)user_data;
 	if (result != NULL) {
 		result->state = state;
-		result->line = line;
-		result->token = token;
+		result->json = json;
 		result->count++;
 	} else {
 		fprintf(stderr, "TEST ERROR: callback didn't receive result pointer!\n");
@@ -204,20 +234,20 @@ static void callback(shet_state_t *state, char *line, jsmntok_t *token, void *us
 
 
 // A callback like the above but which returns its argument
-static void echo_callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
-	callback(state, line, token, user_data);
+static void echo_callback(shet_state_t *state, shet_json_t json, void *user_data) {
+	callback(state, json, user_data);
 	
 	// Return back the argument
 	char response[100];
-	strncpy(response, line + token[0].start, token[0].end - token[0].start);
-	response[token[0].end - token[0].start] = '\0';
+	strncpy(response, json.line + json.token[0].start, json.token[0].end - json.token[0].start);
+	response[json.token[0].end - json.token[0].start] = '\0';
 	shet_return(state, 0, response);
 }
 
 
 // A callback like the above but which returns success and returns a null value
-static void success_callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
-	callback(state, line, token, user_data);
+static void success_callback(shet_state_t *state, shet_json_t json, void *user_data) {
+	callback(state, json, user_data);
 	
 	shet_return(state, 0, "null");
 }
@@ -225,18 +255,18 @@ static void success_callback(shet_state_t *state, char *line, jsmntok_t *token, 
 
 // A callback like the above but which returns success and the value in
 // the return_value field of callback_result_t.
-static void const_callback(shet_state_t *state, char *line, jsmntok_t *token, void *user_data) {
-	callback(state, line, token, user_data);
+static void const_callback(shet_state_t *state, shet_json_t json, void *user_data) {
+	callback(state, json, user_data);
 	
 	shet_return(state, 0, ((callback_result_t *)user_data)->return_value);
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
-// Test token type assertions
+// Test token type checking
 ////////////////////////////////////////////////////////////////////////////////
 
-bool test_assert_int(void) {
+bool test_SHET_JSON_IS_TYPE(void) {
 	// Make sure that the function can distinguish between primitives which are
 	// and are not integers
 	char *strings[] = {
@@ -246,13 +276,33 @@ bool test_assert_int(void) {
 		"true",
 		"false",
 		"null",
+		"\"str\"",
 		"[]",
 		"{}",
 	};
+	enum {
+		SHET_INT = 0,
+		SHET_FLOAT = 0,
+		SHET_BOOL,
+		SHET_NULL,
+		SHET_STRING,
+		SHET_ARRAY,
+		SHET_OBJECT,
+	} types[] = {
+		SHET_INT,
+		SHET_INT,
+		SHET_INT,
+		SHET_BOOL,
+		SHET_BOOL,
+		SHET_NULL,
+		SHET_STRING,
+		SHET_ARRAY,
+		SHET_OBJECT,
+	};
 	size_t num_strings = sizeof(strings)/sizeof(char *);
-	size_t num_valid_ints = 3;
 	
-	for (int i = 0; i < num_strings; i++) {
+	size_t i;
+	for (i = 0; i < num_strings; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -261,13 +311,163 @@ bool test_assert_int(void) {
 		                        , strings[i]
 		                        , strlen(strings[i])
 		                        , tokens
-		                        , SHET_NUM_TOKENS
+		                        , 4
 		                        );
 		// Make sure the string tokenzied successfully
 		TASSERT(e >= 1);
 		
-		// Check the assert
-		TASSERT(assert_int(strings[i], tokens) == (i < num_valid_ints));
+		shet_json_t json;
+		json.line = strings[i];
+		json.token = tokens;
+		
+		// Check the types
+		if (types[i] == SHET_INT) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_INT));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_INT));
+		
+		if (types[i] == SHET_BOOL) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_BOOL));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_BOOL));
+		
+		if (types[i] == SHET_NULL) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_NULL));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_NULL));
+		
+		if (types[i] == SHET_STRING) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_STRING));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_STRING));
+		
+		if (types[i] == SHET_ARRAY) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_ARRAY));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_ARRAY));
+		
+		if (types[i] == SHET_OBJECT) 
+			TASSERT(SHET_JSON_IS_TYPE(json, SHET_OBJECT));
+		else
+			TASSERT(!SHET_JSON_IS_TYPE(json, SHET_OBJECT));
+	}
+	
+	return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Test token type conversion
+////////////////////////////////////////////////////////////////////////////////
+
+bool test_SHET_PARSE_JSON_VALUE_INT(void) {
+	char *json_ints[] = {"[0]", "[123]", "[-1]", "[+1]"};
+	int      c_ints[] = {  0,     123,     -1,     +1 };
+	size_t num = sizeof(c_ints)/sizeof(int);
+	
+	size_t i;
+	for (i = 0; i < num; i++) {
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmntok_t tokens[4];
+		
+		jsmnerr_t e = jsmn_parse( &p
+		                        , json_ints[i]
+		                        , strlen(json_ints[i])
+		                        , tokens
+		                        , 4
+		                        );
+		TASSERT(e == 2);
+		
+		shet_json_t json;
+		json.line = json_ints[i];
+		json.token = tokens + 1;
+		TASSERT_INT_EQUAL(SHET_PARSE_JSON_VALUE(json, SHET_INT), c_ints[i]);
+	}
+	
+	return true;
+}
+
+bool test_SHET_PARSE_JSON_VALUE_FLOAT(void) {
+	char *json_floats[] = {"[0]", "[1.5]", "[-1.5]", "[+1.5]", "[1e7]"};
+	double   c_floats[] = { 0.0,    1.5,     -1.5,     +1.5  ,   1e7};
+	size_t num = sizeof(c_floats)/sizeof(double);
+	
+	size_t i;
+	for (i = 0; i < num; i++) {
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmntok_t tokens[4];
+		
+		jsmnerr_t e = jsmn_parse( &p
+		                        , json_floats[i]
+		                        , strlen(json_floats[i])
+		                        , tokens
+		                        , 4
+		                        );
+		TASSERT(e == 2);
+		
+		shet_json_t json;
+		json.line = json_floats[i];
+		json.token = tokens + 1;
+		TASSERT(SHET_PARSE_JSON_VALUE(json, SHET_FLOAT) == c_floats[i]);
+	}
+	
+	return true;
+}
+
+bool test_SHET_PARSE_JSON_VALUE_BOOL(void) {
+	char *json_bools[] = {"[true]", "[false]"};
+	bool     c_bools[] = {  true,     false};
+	size_t num = sizeof(c_bools)/sizeof(bool);
+	
+	size_t i;
+	for (i = 0; i < num; i++) {
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmntok_t tokens[4];
+		
+		jsmnerr_t e = jsmn_parse( &p
+		                        , json_bools[i]
+		                        , strlen(json_bools[i])
+		                        , tokens
+		                        , 4
+		                        );
+		TASSERT(e == 2);
+		
+		shet_json_t json;
+		json.line = json_bools[i];
+		json.token = tokens + 1;
+		TASSERT(SHET_PARSE_JSON_VALUE(json, SHET_BOOL) == c_bools[i]);
+	}
+	
+	return true;
+}
+
+bool test_SHET_PARSE_JSON_VALUE_STRING(void) {
+	char s0[] = "[\"\"]";
+	char s1[] = "[\"I am a magical string!\"]";
+	char *json_strings[] = {s0,s1};
+	char    *c_strings[] = {"", "I am a magical string!"};
+	size_t num = sizeof(c_strings)/sizeof(char *);
+	
+	size_t i;
+	for (i = 0; i < num; i++) {
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmntok_t tokens[4];
+		
+		jsmnerr_t e = jsmn_parse( &p
+		                        , json_strings[i]
+		                        , strlen(json_strings[i])
+		                        , tokens
+		                        , 4
+		                        );
+		TASSERT(e == 2);
+		
+		shet_json_t json;
+		json.line = json_strings[i];
+		json.token = tokens + 1;
+		TASSERT(strcmp(SHET_PARSE_JSON_VALUE(json, SHET_STRING), c_strings[i]) == 0);
 	}
 	
 	return true;
@@ -322,7 +522,7 @@ bool test_send_command(void) {
 	char response[] = "[5, \"return\", 0, [1,2,3,4]]";
 	TASSERT(shet_process_line(&state, response, strlen(response)) == SHET_PROC_OK);
 	TASSERT(result.count == 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3,4]");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "[1,2,3,4]");
 	
 	return true;
 }
@@ -611,7 +811,7 @@ bool test_shet_set_error_callback(void) {
 	char line2[] = "[1,\"return\",1,[1,2,3]]";
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "[1,2,3]");
 	
 	char line3[] = "[1,\"return\",0,[3,2,1]]";
 	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
@@ -673,6 +873,7 @@ bool test_shet_register(void) {
 	// occurred. Note: this function assumes only register and
 	// event/action/property/watch calls.
 	void transmit(const char *data, void *user_data) {
+		USE(user_data);
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[100];
@@ -721,7 +922,9 @@ bool test_shet_register(void) {
 	}
 	
 	// Callback for "make" functions and the like
-	void make(shet_state_t *state, char *data, jsmntok_t *token, void *user_data) {
+	void make(shet_state_t *state, shet_json_t json, void *user_data) {
+		USE(state);
+		USE(json);
 		size_t i = (const char **)user_data - paths;
 		cb_counts[i]++;
 	}
@@ -729,7 +932,8 @@ bool test_shet_register(void) {
 	shet_state_t state;
 	shet_state_init(&state, NULL, transmit, NULL);
 	TASSERT_INT_EQUAL(register_count, 1);
-	for (int i = 0; i < num; i++) {
+	int i;
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 0);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
 	}
@@ -739,7 +943,7 @@ bool test_shet_register(void) {
 	// Test that re-registering an empty system does no damage
 	shet_reregister(&state);
 	TASSERT_INT_EQUAL(register_count, 2);
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 0);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
 	}
@@ -747,7 +951,7 @@ bool test_shet_register(void) {
 	TASSERT_INT_EQUAL(bad_tx_count, 0);
 	
 	// Test registering all the test paths
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		switch (types[i]) {
 			case TYPE_EVENT:
 				shet_make_event(&state, paths[i], &(events[i]),
@@ -774,7 +978,7 @@ bool test_shet_register(void) {
 		}
 	}
 	TASSERT_INT_EQUAL(register_count, 2);
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 1);
 		TASSERT_INT_EQUAL(cb_counts[i], 0);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
@@ -783,19 +987,19 @@ bool test_shet_register(void) {
 	TASSERT_INT_EQUAL(bad_tx_count, 0);
 	
 	// Send callbacks
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		char msg[100];
 		sprintf(msg, "[%d,\"return\",0,null]", reg_return_ids[i]);
 		TASSERT(shet_process_line(&state, msg, strlen(msg)) == SHET_PROC_OK);
 	}
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(cb_counts[i], 1);
 	}
 	
 	// Test re-registering makes everything come back
 	shet_reregister(&state);
 	TASSERT_INT_EQUAL(register_count, 3);
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 2);
 		TASSERT_INT_EQUAL(cb_counts[i], 1);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
@@ -804,17 +1008,17 @@ bool test_shet_register(void) {
 	TASSERT_INT_EQUAL(bad_tx_count, 0);
 	
 	// And that all the callbacks work again
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		char msg[100];
 		sprintf(msg, "[%d,\"return\",0,null]", reg_return_ids[i]);
 		TASSERT(shet_process_line(&state, msg, strlen(msg)) == SHET_PROC_OK);
 	}
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(cb_counts[i], 2);
 	}
 	
 	// Remove everything and make sture everything returns to normal
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		switch (types[i]) {
 			case TYPE_EVENT:
 				shet_remove_event(&state, paths[i],
@@ -838,7 +1042,7 @@ bool test_shet_register(void) {
 		}
 	}
 	TASSERT_INT_EQUAL(register_count, 3);
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 3);
 		TASSERT_INT_EQUAL(cb_counts[i], 2);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
@@ -849,13 +1053,15 @@ bool test_shet_register(void) {
 	// Test re-registering doesn't re-introduce anything
 	shet_reregister(&state);
 	TASSERT_INT_EQUAL(register_count, 4);
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 3);
 		TASSERT_INT_EQUAL(cb_counts[i], 2);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
 	}
 	TASSERT_INT_EQUAL(bad_path_count, 0);
 	TASSERT_INT_EQUAL(bad_tx_count, 0);
+	
+	return true;
 }
 
 
@@ -878,7 +1084,7 @@ bool test_shet_cancel_deferred_and_shet_ping(void) {
 	TASSERT(shet_process_line(&state, response1, strlen(response1)) ==
 	SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line, result.token, "[1,2,3,{1:2,3:4}]");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "[1,2,3,{1:2,3:4}]");
 	
 	// Send a second ping
 	shet_ping(&state, "[3,2,1]",
@@ -905,18 +1111,24 @@ bool test_return(void) {
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
 	// A function which immediately returns nothing
-	void return_null(shet_state_t *state, char *line, jsmntok_t *tokens, void *user_data) {
+	void return_null(shet_state_t *state, shet_json_t json, void *user_data) {
+		USE(json);
+		USE(user_data);
 		shet_return(state, 0, NULL);
 	}
 	
 	// A function which immediately returns a value
-	void return_value(shet_state_t *state, char *line, jsmntok_t *tokens, void *user_data) {
+	void return_value(shet_state_t *state, shet_json_t json, void *user_data) {
+		USE(json);
+		USE(user_data);
 		shet_return(state, 0, "[1,2,3]");
 	}
 	
 	// A function which doesn't respond but simply copies down the ID
 	char return_id[100];
-	void return_later(shet_state_t *state, char *line, jsmntok_t *tokens, void *user_data) {
+	void return_later(shet_state_t *state, shet_json_t json, void *user_data) {
+		USE(json);
+		USE(user_data);
 		strcpy(return_id, shet_get_return_id(state));
 	}
 	
@@ -926,10 +1138,10 @@ bool test_return(void) {
 	shet_make_action(&state, "/test/action",
 	                 &deferred, return_null, NULL,
 	                 NULL, NULL, NULL, NULL);
-	char line1[] = "[{\"whacky\":\"id\"}, \"docall\", \"/test/action\", null]";
-	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	char line1[] = "[{\"whacky\":[\"id\",2,3]}, \"docall\", \"/test/action\", null]";
+	TASSERT_INT_EQUAL(shet_process_line(&state, line1, strlen(line1)), SHET_PROC_OK);
 	TASSERT_INT_EQUAL(transmit_count, 3);
-	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[{\"whacky\":\"id\"}, \"return\", 0, null]");
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[{\"whacky\":[\"id\",2,3]}, \"return\", 0, null]");
 	shet_remove_action(&state, "/test/action", NULL, NULL, NULL, NULL);
 	
 	// Test an action which returns some value (also tests arrays as IDs)
@@ -1004,7 +1216,7 @@ bool test_shet_make_action(void) {
 	char line1[] = "[0,\"docall\",\"/test/action1\"]";
 	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[]");
 	TASSERT_INT_EQUAL(result2.count, 0);
 	TASSERT_INT_EQUAL(transmit_count, 4);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[]]");
@@ -1013,7 +1225,7 @@ bool test_shet_make_action(void) {
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[]");
 	TASSERT_INT_EQUAL(transmit_count, 5);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,[]]");
 	
@@ -1032,7 +1244,7 @@ bool test_shet_make_action(void) {
 	char line4[] = "[3,\"docall\",\"/test/action1\", \"just me\"]";
 	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[\"just me\"]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[\"just me\"]");
 	TASSERT_INT_EQUAL(transmit_count, 8);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"return\",0,[\"just me\"]]");
 	
@@ -1040,7 +1252,7 @@ bool test_shet_make_action(void) {
 	char line5[] = "[4,\"docall\",\"/test/action1\", true]";
 	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 3);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[true]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[true]");
 	TASSERT_INT_EQUAL(transmit_count, 9);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"return\",0,[true]]");
 	
@@ -1048,7 +1260,7 @@ bool test_shet_make_action(void) {
 	char line6[] = "[5,\"docall\",\"/test/action1\", [1,2,3]]";
 	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 4);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[[1,2,3]]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[[1,2,3]]");
 	TASSERT_INT_EQUAL(transmit_count, 10);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"return\",0,[[1,2,3]]]");
 	
@@ -1056,7 +1268,7 @@ bool test_shet_make_action(void) {
 	char line7[] = "[6,\"docall\",\"/test/action1\", 1,2,3]";
 	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 5);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[1,2,3]");
 	TASSERT_INT_EQUAL(transmit_count, 11);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"return\",0,[1,2,3]]");
 	
@@ -1152,7 +1364,7 @@ bool test_shet_make_prop(void) {
 	char line1[] = "[0,\"setprop\",\"/test/prop1\",123]";
 	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[123]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "123");
 	TASSERT_INT_EQUAL(result2.count, 0);
 	TASSERT_INT_EQUAL(transmit_count, 4);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,null]");
@@ -1161,7 +1373,7 @@ bool test_shet_make_prop(void) {
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[321]");
+	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "321");
 	TASSERT_INT_EQUAL(transmit_count, 5);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
 	
@@ -1169,7 +1381,6 @@ bool test_shet_make_prop(void) {
 	char line3[] = "[0,\"getprop\",\"/test/prop1\"]";
 	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
 	TASSERT_INT_EQUAL(result2.count, 1);
 	TASSERT_INT_EQUAL(transmit_count, 6);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[1,2,3]]");
@@ -1178,7 +1389,6 @@ bool test_shet_make_prop(void) {
 	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
 	TASSERT_INT_EQUAL(transmit_count, 7);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,[3,2,1]]");
 	
@@ -1191,7 +1401,6 @@ bool test_shet_make_prop(void) {
 	char line5[] = "[0,\"getprop\",\"/test/prop1\"]";
 	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 3);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
 	TASSERT_INT_EQUAL(result2.count, 2);
 	TASSERT_INT_EQUAL(transmit_count, 9);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[1,2,3]]");
@@ -1227,7 +1436,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	char line1[] = "[1,\"return\",0,[1,2,3]]";
 	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "[1,2,3]");
 	
 	// Test set
 	shet_set_prop(&state, "/test/set", "[3,2,1]",
@@ -1239,7 +1448,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	char line2[] = "[2,\"return\",0,null]";
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "null");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "null");
 	
 	// Test that error conditions work
 	shet_set_prop(&state, "/test/set", "[9,9,9]",
@@ -1249,7 +1458,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	char line3[] = "[3,\"return\",1,\"fail\"]";
 	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result.count, 3);
-	TASSERT_JSON_EQUAL_TOK_STR(result.line,result.token, "\"fail\"");
+	TASSERT_JSON_EQUAL_TOK_STR(result.json, "\"fail\"");
 	
 	return true;
 }
@@ -1264,10 +1473,7 @@ bool test_shet_make_event(void) {
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
-	shet_deferred_t deferred;
 	shet_event_t event;
-	callback_result_t result;
-	result.count = 0;
 	
 	// Make sure events can be created
 	shet_make_event(&state, "/test/event", &event, NULL, NULL, NULL, NULL);
@@ -1326,14 +1532,14 @@ bool test_shet_watch_event(void) {
 	char line1[] = "[0,\"event\",\"/test/event1\"]";
 	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[]");
 	TASSERT_INT_EQUAL(result2.count, 0);
 	
 	char line2[] = "[1,\"event\",\"/test/event2\"]";
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
+	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[]");
 	
 	// Make sure that we can ignore just one
 	shet_ignore_event(&state, "/test/event2", NULL, NULL, NULL, NULL);
@@ -1344,7 +1550,7 @@ bool test_shet_watch_event(void) {
 	char line3[] = "[2,\"event\",\"/test/event1\", 1,2,3]";
 	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.line,result1.token, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[1,2,3]");
 	TASSERT_INT_EQUAL(result2.count, 1);
 	
 	// And that the ignored one doesn't...
@@ -1362,7 +1568,6 @@ bool test_shet_watch_event(void) {
 	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
 	
 	// And that we can receive eventdeleted
 	shet_ignore_event(&state, "/test/event3", NULL, NULL, NULL, NULL);
@@ -1374,18 +1579,1268 @@ bool test_shet_watch_event(void) {
 	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 3);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.line,result2.token, "[]");
 	
 	return true;
 }
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Test JSON unpacking macros
+////////////////////////////////////////////////////////////////////////////////
+
+
+bool test_SHET_UNPACK_JSON(void) {
+	jsmntok_t tokens[100];
+	shet_json_t json;
+	
+	bool parse(char *str) {
+		json.line = str;
+		json.token = tokens;
+		jsmn_parser p;
+		jsmn_init(&p);
+		jsmnerr_t e = jsmn_parse(&p, str, strlen(str),
+	                           tokens, 100);
+		return e >= 0;
+	}
+	
+	// Variables which may be set during unpacking
+	int i1 = 0;
+	int i2 = 0;
+	int i3 = 0;
+	int i4 = 0;
+	double f1 = 0.0;
+	double f2 = 0.0;
+	bool b1 = false;
+	bool b2 = false;
+	const char *s1 = NULL;
+	const char *s2 = NULL;
+	shet_json_t a1; a1.token = NULL;
+	shet_json_t a2; a2.token = NULL;
+	shet_json_t o1; a1.token = NULL;
+	shet_json_t o2; a2.token = NULL;
+	
+	// Flag to clear on failure
+	bool ok = true;
+	
+	// Test can unpack an int
+	char line1[] = "123";
+	TASSERT(parse(line1));
+	SHET_UNPACK_JSON(json, ok=false;, i1, SHET_INT);
+	TASSERT(ok);
+	TASSERT_INT_EQUAL(i1, 123);
+	
+	// Test can unpack a float
+	char line2[] = "1.5";
+	TASSERT(parse(line2));
+	SHET_UNPACK_JSON(json, ok=false;, f1, SHET_FLOAT);
+	TASSERT(ok);
+	TASSERT(f1 == 1.5);
+	
+	// Test can unpack a boolean
+	char line3[] = "true";
+	TASSERT(parse(line3));
+	SHET_UNPACK_JSON(json, ok=false;, b1, SHET_BOOL);
+	TASSERT(ok);
+	TASSERT(b1 == true);
+	
+	// Test can unpack a null
+	char line4[] = "null";
+	TASSERT(parse(line4));
+	SHET_UNPACK_JSON(json, ok=false;, doesnotexist, SHET_NULL);
+	TASSERT(ok);
+	
+	// Test can unpack a string
+	char line5[] = "\"hello\"";
+	TASSERT(parse(line5));
+	SHET_UNPACK_JSON(json, ok=false;, s1, SHET_STRING);
+	TASSERT(ok);
+	TASSERT(s1 != NULL);
+	TASSERT(strcmp(s1, "hello") == 0);
+	
+	// Test can unpack a whole array
+	char line6[] = "[1,2,3]";
+	TASSERT(parse(line6));
+	SHET_UNPACK_JSON(json, ok=false;, a1, SHET_ARRAY);
+	TASSERT(ok);
+	TASSERT_JSON_EQUAL_TOK_STR(a1, "[1,2,3]");
+	
+	// Test can unpack a whole array
+	char line7[] = "{1:2, 3:4}";
+	TASSERT(parse(line7));
+	SHET_UNPACK_JSON(json, ok=false;, o1, SHET_OBJECT);
+	TASSERT(ok);
+	TASSERT_JSON_EQUAL_TOK_STR(o1, "{1:2, 3:4}");
+	
+	// Test unpacking a simple array
+	char line8[] = "[1,2,3,4]";
+	TASSERT(parse(line8));
+	SHET_UNPACK_JSON(json, ok=false;,
+		_, SHET_ARRAY_BEGIN,
+			i1, SHET_INT,
+			i2, SHET_INT,
+			i3, SHET_INT,
+			i4, SHET_INT,
+		_, SHET_ARRAY_END,
+	);
+	TASSERT(ok);
+	TASSERT_INT_EQUAL(i1, 1);
+	TASSERT_INT_EQUAL(i2, 2);
+	TASSERT_INT_EQUAL(i3, 3);
+	TASSERT_INT_EQUAL(i4, 4);
+	
+	// Test unpacking a multi-type array
+	char line9[] = "[1,2.5,true,null,\"abc\",[3,2,1],{true:false}]";
+	TASSERT(parse(line9));
+	SHET_UNPACK_JSON(json, ok=false;,
+		_, SHET_ARRAY_BEGIN,
+			i2, SHET_INT,
+			f2, SHET_FLOAT,
+			b2, SHET_BOOL,
+			notexist, SHET_NULL,
+			s2, SHET_STRING,
+			a2, SHET_ARRAY,
+			o2, SHET_OBJECT,
+		_, SHET_ARRAY_END,
+	);
+	TASSERT(ok);
+	TASSERT_INT_EQUAL(i2, 1);
+	TASSERT(f2 == 2.5);
+	TASSERT(b2 == true);
+	TASSERT(s2 != NULL);
+	TASSERT(strcmp(s2,"abc") == 0);
+	TASSERT_JSON_EQUAL_TOK_STR(a2, "[3,2,1]");
+	TASSERT_JSON_EQUAL_TOK_STR(o2, "{true:false}");
+	
+	// Test unpacking a nested array
+	char line10[] = "[-1,[-2,-3],-4]";
+	TASSERT(parse(line10));
+	SHET_UNPACK_JSON(json, ok=false;,
+		_, SHET_ARRAY_BEGIN,
+			i1, SHET_INT,
+			_, SHET_ARRAY_BEGIN,
+				i2, SHET_INT,
+				i3, SHET_INT,
+			_, SHET_ARRAY_END,
+			i4, SHET_INT,
+		_, SHET_ARRAY_END,
+	);
+	TASSERT(ok);
+	TASSERT_INT_EQUAL(i1, -1);
+	TASSERT_INT_EQUAL(i2, -2);
+	TASSERT_INT_EQUAL(i3, -3);
+	TASSERT_INT_EQUAL(i4, -4);
+	
+	// Test wrong type 
+	char line11[] = "false";
+	TASSERT(parse(line11));
+	SHET_UNPACK_JSON(json, ok=false;, i1, SHET_INT);
+	TASSERT(!ok);
+	ok = true;
+	
+	// Test too-many arguments for singleton
+	char line12[] = "1";
+	TASSERT(parse(line12));
+	SHET_UNPACK_JSON(json, ok=false;, i1, SHET_INT, i2, SHET_INT);
+	TASSERT(!ok);
+	ok = true;
+	
+	// Test too-many arguments for array
+	char line13[] = "[1]";
+	TASSERT(parse(line13));
+	SHET_UNPACK_JSON(json, ok=false;, i1, SHET_INT, i2, SHET_INT);
+	TASSERT(!ok);
+	ok = true;
+	
+	// Test too-few arguments for array
+	char line14[] = "[1,2,3]";
+	TASSERT(parse(line14));
+	SHET_UNPACK_JSON(json, ok=false;, i1, SHET_INT, i2, SHET_INT);
+	TASSERT(!ok);
+	ok = true;
+	
+	// Test no arguments for array
+	char line15[] = "1";
+	TASSERT(parse(line15));
+	SHET_UNPACK_JSON(json, ok=false;);
+	TASSERT(!ok);
+	ok = true;
+	
+	return true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Test JSON packing macros
+////////////////////////////////////////////////////////////////////////////////
+
+
+bool test_SHET_PACK_JSON_LENGTH(void) {
+	int i = INT_MIN;
+	double f = -999999999.999999999;
+	bool bt = true;
+	bool bf = false;
+	const char s1[] = "";
+	const char s2[] = "hello, world!";
+	const char a[] = "[1,2,3]";
+	const char o[] = "{1:2,3:4}";
+	
+	// A large buffer to use for testing
+	char buf[100];
+	
+	
+	// An single char string should be large enough for a null.
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(), 1);
+	
+	// Enough for a big integer
+	sprintf(buf, "%d", i);
+	TASSERT(SHET_PACK_JSON_LENGTH(i, SHET_INT) >= strlen(buf) + 1);
+	
+	// Enough for a big float
+	sprintf(buf, "%f", f);
+	TASSERT(SHET_PACK_JSON_LENGTH(f, SHET_FLOAT) >= strlen(buf) + 1);
+	
+	// Enough for a bool
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(bt, SHET_BOOL), strlen(bt ? "true" : "false") + 1);
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(bf, SHET_BOOL), strlen(bf ? "true" : "false") + 1);
+	
+	// Enough for a null
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(_, SHET_NULL), strlen("null") + 1);
+	
+	// Enough for an empty string
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(s1, SHET_STRING), strlen(s1) + 2 + 1);
+	
+	// Enough for a non-empty string
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(s2, SHET_STRING), strlen(s2) + 2 + 1);
+	
+	// Enough for an array
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(a, SHET_ARRAY), strlen(a) + 1);
+	
+	// Enough for an object
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(o, SHET_OBJECT), strlen(o) + 1);
+	
+	// Enough for a series of objects (with commas between them)
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(s1, SHET_STRING, s2, SHET_STRING),
+	                  1+ // "
+	                  strlen(s1)+
+	                  1+ // "
+	                  1+ // ,
+	                  1+ // "
+	                  strlen(s2)+
+	                  1+ // "
+	                  1); // \0
+	
+	// Enough for an empty packed array
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(_, SHET_ARRAY_BEGIN, _, SHET_ARRAY_END), 3);
+	
+	// Enough for a series of nested objects (with commas between them)
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(
+		_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_END,
+			_, SHET_ARRAY_END,
+			s1, SHET_STRING,
+			_, SHET_ARRAY_BEGIN,
+				s2, SHET_STRING,
+			_, SHET_ARRAY_END,
+		_, SHET_ARRAY_END),
+		1+ // [
+		4+ // [[]]
+		1+ // ,
+		1+ // "
+		strlen(s1)+
+		1+ // "
+		1+ // ,
+		1+ // [
+		1+ // "
+		strlen(s2)+
+		1+ // "
+		1+ // ]
+		1+ // ]
+		1); // \0
+	
+	return true;
+}
+
+bool test_SHET_PACK_JSON(void) {
+	char buf[100];
+	
+	// An empty value
+	SHET_PACK_JSON(buf);
+	TASSERT(strcmp(buf, "") == 0);
+	
+	// A single Integer
+	SHET_PACK_JSON(buf, 123, SHET_INT);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "123");
+	
+	// A single float
+	SHET_PACK_JSON(buf, 2.5, SHET_FLOAT);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "2.500000");
+	
+	// A single bool
+	SHET_PACK_JSON(buf, true, SHET_BOOL);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "true");
+	
+	// A single null
+	SHET_PACK_JSON(buf, _, SHET_NULL);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "null");
+	
+	// A single string
+	SHET_PACK_JSON(buf, "my string", SHET_STRING);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "\"my string\"");
+	
+	// A single array
+	SHET_PACK_JSON(buf, "[1,2,3]", SHET_ARRAY);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "[1,2,3]");
+	
+	// A single object
+	SHET_PACK_JSON(buf, "{1:2,3:4}", SHET_OBJECT);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "{1:2,3:4}");
+	
+	// A packed empty array
+	SHET_PACK_JSON(buf,
+		_, SHET_ARRAY_BEGIN,
+		_, SHET_ARRAY_END);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "[]");
+	
+	// A packed singleton array
+	SHET_PACK_JSON(buf,
+		_, SHET_ARRAY_BEGIN,
+			1, SHET_INT,
+		_, SHET_ARRAY_END);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "[1]");
+	
+	// A packed single-dimensional array
+	SHET_PACK_JSON(buf,
+		_, SHET_ARRAY_BEGIN,
+			1, SHET_INT,
+			2, SHET_INT,
+			3, SHET_INT,
+		_, SHET_ARRAY_END);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "[1,2,3]");
+	
+	// A nested array
+	SHET_PACK_JSON(buf,
+		_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_BEGIN,
+				_, SHET_ARRAY_BEGIN,
+				_, SHET_ARRAY_END,
+			_, SHET_ARRAY_END,
+			1, SHET_INT,
+			_, SHET_ARRAY_BEGIN,
+				2, SHET_INT,
+			_, SHET_ARRAY_END,
+			3, SHET_INT,
+		_, SHET_ARRAY_END);
+	TASSERT_JSON_EQUAL_STR_STR(buf, "[[[]],1,[2],3]");
+	
+	return true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Test EZSHET Watches
+////////////////////////////////////////////////////////////////////////////////
+
+// A watch callback which accepts no arguments
+int ez_watch_count = 0;
+void ez_watch(shet_state_t *shet) { USE(shet); ez_watch_count++; }
+EZSHET_DECLARE_WATCH(ez_watch);
+EZSHET_DECLARE_WATCH(ez_watch);
+EZSHET_WATCH("/ez_watch", ez_watch)
+
+// A watch callback which accepts an argument of every type
+int ez_watch_args_count = 0;
+int ez_watch_args_int = 0;
+float ez_watch_args_float = 0.0;
+bool ez_watch_args_bool = false;
+const char *ez_watch_args_string = NULL;
+int ez_watch_args_array_0 = 0;
+int ez_watch_args_array_1 = 0;
+shet_json_t ez_watch_args_array = {NULL, NULL};
+shet_json_t ez_watch_args_object = {NULL, NULL};
+void ez_watch_args(shet_state_t *shet, int i, double f, bool b, const char *s, int a0, int a1, shet_json_t a, shet_json_t o) {
+	USE(shet);
+	ez_watch_args_count++;
+	ez_watch_args_int = i;
+	ez_watch_args_float = f;
+	ez_watch_args_bool = b;
+	ez_watch_args_string = s;
+	ez_watch_args_array_0 = a0;
+	ez_watch_args_array_1 = a1;
+	ez_watch_args_array = a;
+	ez_watch_args_object = o;
+}
+// This time don't declare the watch and make sure it still works
+EZSHET_WATCH("/ez_watch_args", ez_watch_args,
+	SHET_INT,
+	SHET_FLOAT,
+	SHET_BOOL,
+	SHET_NULL,
+	SHET_STRING,
+	SHET_ARRAY_BEGIN,
+		SHET_INT,
+		SHET_INT,
+	SHET_ARRAY_END,
+	SHET_ARRAY,
+	SHET_OBJECT
+);
+
+
+bool test_EZSHET_WATCH(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test that registration works
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
+	EZSHET_ADD(&state, ez_watch);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"watch\",\"/ez_watch\"]");
+	
+	// Test that it does not appear if registration fails
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
+	char line1[] = "[1, \"return\", 1, \"fail\"]";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
+	
+	// Try registering again
+	EZSHET_ADD(&state, ez_watch);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"watch\",\"/ez_watch\"]");
+	
+	// Test that it does appear if registration succeeds
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
+	char line2[] = "[2, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_watch));
+	
+	// Test that the event works when no arguments are passed
+	TASSERT_INT_EQUAL(ez_watch_count, 0);
+	char line3[] = "[\"id\", \"event\", \"/ez_watch\"]";
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(ez_watch_count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"id\",\"return\",0,null]");
+	
+	// Test that the event fails when any arguments are passed
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_watch), 0);
+	char line4[] = "[\"eyedee\", \"event\", \"/ez_watch\", null]";
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_watch), 1);
+	TASSERT_INT_EQUAL(ez_watch_count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"eyedee\",\"return\",1,\"Expected no value\"]");
+	
+	// Test that un-registration works
+	EZSHET_REMOVE(&state, ez_watch);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"ignore\",\"/ez_watch\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
+	
+	// Register the watch with arguments
+	TASSERT(!EZSHET_IS_REGISTERED(ez_watch_args));
+	EZSHET_ADD(&state, ez_watch_args);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"watch\",\"/ez_watch_args\"]");
+	char line5[] = "[4, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_watch_args));
+	
+	// Check that it can be called with appropriate arguments
+	TASSERT_INT_EQUAL(ez_watch_args_count, 0);
+	char line6[] = "[\"eyed\", \"event\", \"/ez_watch_args\", 1, 2.5, true, null, \"epic\", [13,37], [3,2,1], {1:2,3:4}]";
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(ez_watch_args_count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"eyed\",\"return\",0,null]");
+	TASSERT_INT_EQUAL(ez_watch_args_int, 1);
+	TASSERT(ez_watch_args_float == 2.5);
+	TASSERT(ez_watch_args_bool == true);
+	TASSERT(strcmp(ez_watch_args_string, "epic") == 0);
+	TASSERT_INT_EQUAL(ez_watch_args_array_0, 13);
+	TASSERT_INT_EQUAL(ez_watch_args_array_1, 37);
+	TASSERT_JSON_EQUAL_TOK_STR(ez_watch_args_array, "[3,2,1]");
+	TASSERT_JSON_EQUAL_TOK_STR(ez_watch_args_object, "{1:2,3:4}");
+	
+	// Check that it can be called with inappropriate arguments
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_watch_args), 0);
+	char line7[] = "[\"idee\", \"event\", \"/ez_watch_args\", \"this ain't no good!\"]";
+	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(ez_watch_args_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_watch_args), 1);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[\"idee\",\"return\",1,\"Expected int, float, bool, null, string, [int, int], array, object\"]");
+	
+	return true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Test EZSHET Events
+////////////////////////////////////////////////////////////////////////////////
+
+// Create an event with no arguments. Also test no-declaration is fine.
+EZSHET_EVENT("/ez_event", ez_event);
+
+// An event with arguments of every type. Ensure double-declaration is OK.
+EZSHET_DECLARE_EVENT(ez_event_args,
+	SHET_ARRAY_BEGIN,
+		SHET_ARRAY_BEGIN,
+			SHET_INT,
+		SHET_ARRAY_END,
+		SHET_FLOAT,
+	SHET_ARRAY_END,
+	SHET_NULL,
+	SHET_BOOL,
+	SHET_STRING,
+	SHET_ARRAY,
+	SHET_OBJECT);
+EZSHET_DECLARE_EVENT(ez_event_args,
+	SHET_ARRAY_BEGIN,
+		SHET_ARRAY_BEGIN,
+			SHET_INT,
+		SHET_ARRAY_END,
+		SHET_FLOAT,
+	SHET_ARRAY_END,
+	SHET_NULL,
+	SHET_BOOL,
+	SHET_STRING,
+	SHET_ARRAY,
+	SHET_OBJECT);
+EZSHET_EVENT("/ez_event_args", ez_event_args,
+	SHET_ARRAY_BEGIN,
+		SHET_ARRAY_BEGIN,
+			SHET_INT,
+		SHET_ARRAY_END,
+		SHET_FLOAT,
+	SHET_ARRAY_END,
+	SHET_NULL,
+	SHET_BOOL,
+	SHET_STRING,
+	SHET_ARRAY,
+	SHET_OBJECT);
+
+
+bool test_EZSHET_EVENT(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test that events can't be sent yet
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 0);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 1);
+	TASSERT_INT_EQUAL(transmit_count, 1);
+	
+	// Test that registration sends a request
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	EZSHET_ADD(&state, ez_event);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkevent\",\"/ez_event\"]");
+	
+	// Test that events still can't be sent
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 1);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 2);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	
+	// Test that registration can fail
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	char line1[] = "[1, \"return\", 1, \"fail\"]";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	
+	// Test that events still can't be sent
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 2);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	
+	// Test that registration can work
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	EZSHET_ADD(&state, ez_event);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"mkevent\",\"/ez_event\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	char line2[] = "[2, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_event));
+	
+	// Test that events can (finally) be sent
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"raise\",\"/ez_event\"]");
+	
+	// ...and that it wasn't just a fluke!
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"raise\",\"/ez_event\"]");
+	
+	// Make sure events can be removed
+	TASSERT(EZSHET_IS_REGISTERED(ez_event));
+	EZSHET_REMOVE(&state, ez_event);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"rmevent\",\"/ez_event\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event));
+	
+	// Test that the event doesn't work any more
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 3);
+	ez_event(&state);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 4);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	
+	// Test that registration sends a request
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event_args));
+	EZSHET_ADD(&state, ez_event_args);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"mkevent\",\"/ez_event_args\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_event_args));
+	char line3[] = "[6, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_event_args));
+	
+	// Test that the event works
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event_args), 0);
+	ez_event_args(&state, 1, 2.5, true, "hello, world", "[1,2,3]", "{1:2,3:4}");
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event_args), 0);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[7,\"raise\",\"/ez_event_args\","
+		" [[1], 2.500000], null, true, \"hello, world\", [1,2,3], {1:2,3:4}]");
+	
+	
+	return true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Test EZSHET Properties
+////////////////////////////////////////////////////////////////////////////////
+
+// Create a property with a single value
+unsigned int get_ez_prop_count = 0;
+unsigned int set_ez_prop_count = 0;
+int ez_prop_value = 0;
+int get_ez_prop(shet_state_t *shet) {
+	USE(shet);
+	get_ez_prop_count++;
+	return ez_prop_value;
+}
+void set_ez_prop(shet_state_t *shet, int value) {
+	USE(shet);
+	set_ez_prop_count++;
+	ez_prop_value = value;
+}
+EZSHET_DECLARE_PROP(ez_prop);
+EZSHET_DECLARE_PROP(ez_prop);
+EZSHET_PROP("/ez_prop", ez_prop, SHET_INT);
+
+
+// Create a property with a non-repreesnted value, i.e. null
+unsigned int get_ez_prop_null_count = 0;
+unsigned int set_ez_prop_null_count = 0;
+void get_ez_prop_null(shet_state_t *shet) {
+	USE(shet);
+	get_ez_prop_null_count++;
+}
+void set_ez_prop_null(shet_state_t *shet) {
+	USE(shet);
+	set_ez_prop_null_count++;
+}
+EZSHET_PROP("/ez_prop_null", ez_prop_null, SHET_NULL);
+
+// Create a property with an expanded value with many types
+unsigned int get_ez_prop_expanded_count = 0;
+unsigned int set_ez_prop_expanded_count = 0;
+int ez_prop_expanded_int = 0;
+double ez_prop_expanded_float = 0.0;
+bool ez_prop_expanded_bool = false;
+char ez_prop_expanded_string[100];
+char ez_prop_expanded_array_json[100];
+jsmntok_t ez_prop_expanded_array_tokens[100];
+shet_json_t ez_prop_expanded_array = {ez_prop_expanded_array_json, ez_prop_expanded_array_tokens};
+char ez_prop_expanded_object_json[100];
+jsmntok_t ez_prop_expanded_object_tokens[100];
+shet_json_t ez_prop_expanded_object = {ez_prop_expanded_object_json, ez_prop_expanded_object_tokens};
+void get_ez_prop_expanded(shet_state_t *shet, int *i, double *f, bool *b, const char **s, const char **a, const char **o) {
+	USE(shet);
+	*i = ez_prop_expanded_int;
+	*f = ez_prop_expanded_float;
+	*b = ez_prop_expanded_bool;
+	*s = ez_prop_expanded_string;
+	*a = ez_prop_expanded_array.line + ez_prop_expanded_array.token->start;
+	*o = ez_prop_expanded_object.line + ez_prop_expanded_object.token->start;
+	get_ez_prop_expanded_count++;
+}
+void set_ez_prop_expanded(shet_state_t *shet, int i, double f, bool b, const char *s, shet_json_t a, shet_json_t o) {
+	USE(shet);
+	ez_prop_expanded_int    = i;
+	ez_prop_expanded_float  = f;
+	ez_prop_expanded_bool   = b;
+	strcpy(ez_prop_expanded_string, s);
+	memcpy(ez_prop_expanded_array_json, a.line,
+	       a.token->end * sizeof(char));
+	memcpy(ez_prop_expanded_array_tokens, a.token,
+	       shet_count_tokens(a) * sizeof(shet_json_t));
+	memcpy(ez_prop_expanded_object_json, o.line,
+	       o.token->end * sizeof(char));
+	memcpy(ez_prop_expanded_object_tokens, o.token,
+	       shet_count_tokens(o) * sizeof(shet_json_t));
+	
+	set_ez_prop_expanded_count++;
+}
+EZSHET_DECLARE_PROP(ez_prop_expanded);
+EZSHET_DECLARE_PROP(ez_prop_expanded);
+EZSHET_PROP("/ez_prop_expanded", ez_prop_expanded,
+	SHET_ARRAY_BEGIN,
+		SHET_ARRAY_BEGIN,
+			SHET_INT,
+			SHET_ARRAY_BEGIN,
+			SHET_ARRAY_END,
+		SHET_ARRAY_END,
+		SHET_FLOAT,
+		SHET_BOOL,
+		SHET_NULL,
+		SHET_STRING,
+		SHET_ARRAY,
+		SHET_OBJECT,
+	SHET_ARRAY_END
+);
+
+
+bool test_EZSHET_PROP(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test that registration works
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
+	EZSHET_ADD(&state, ez_prop);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkprop\",\"/ez_prop\"]");
+	
+	// Test that it does not appear if registration fails
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
+	char line1[] = "[1, \"return\", 1, \"fail\"]";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
+	
+	// Test that registration works when it does not fail
+	EZSHET_ADD(&state, ez_prop);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"mkprop\",\"/ez_prop\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
+	char line2[] = "[2, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_prop));
+	
+	// Test that the setter works
+	TASSERT_INT_EQUAL(set_ez_prop_count, 0);
+	TASSERT_INT_EQUAL(get_ez_prop_count, 0);
+	char line3[] = "[1, \"setprop\", \"/ez_prop\", 123]";
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(set_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_count, 0);
+	TASSERT_INT_EQUAL(ez_prop_value, 123);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
+	
+	// Test that the getter works
+	TASSERT_INT_EQUAL(get_ez_prop_count, 0);
+	TASSERT_INT_EQUAL(set_ez_prop_count, 1);
+	char line4[] = "[1, \"getprop\", \"/ez_prop\"]";
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(get_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(set_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(ez_prop_value, 123);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,123]");
+	
+	// Test that the setter fails with wrong argument type
+	TASSERT_INT_EQUAL(set_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_prop), 0);
+	char line5[] = "[1, \"setprop\", \"/ez_prop\", false]";
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(set_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_prop), 1);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",1,\"Expected int\"]");
+	
+	// Test that the property can be unregistered
+	EZSHET_REMOVE(&state, ez_prop);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmprop\",\"/ez_prop\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
+	
+	// Test that null properties work
+	EZSHET_ADD(&state, ez_prop_null);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"mkprop\",\"/ez_prop_null\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop_null));
+	char line6[] = "[4, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_prop_null));
+	
+	// Test that the setter works
+	TASSERT_INT_EQUAL(set_ez_prop_null_count, 0);
+	TASSERT_INT_EQUAL(get_ez_prop_null_count, 0);
+	char line7[] = "[1, \"setprop\", \"/ez_prop_null\", null]";
+	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(set_ez_prop_null_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_null_count, 0);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
+	
+	// Test that the getter works
+	TASSERT_INT_EQUAL(get_ez_prop_null_count, 0);
+	TASSERT_INT_EQUAL(set_ez_prop_null_count, 1);
+	char line8[] = "[1, \"getprop\", \"/ez_prop_null\"]";
+	TASSERT(shet_process_line(&state, line8, strlen(line8)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(get_ez_prop_null_count, 1);
+	TASSERT_INT_EQUAL(set_ez_prop_null_count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 10);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
+	
+	// Unregister now we're done with it
+	EZSHET_REMOVE(&state, ez_prop_null);
+	TASSERT_INT_EQUAL(transmit_count, 11);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"rmprop\",\"/ez_prop_null\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop_null));
+	
+	// Test that properties with many expanded values work
+	EZSHET_ADD(&state, ez_prop_expanded);
+	TASSERT_INT_EQUAL(transmit_count, 12);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"mkprop\",\"/ez_prop_expanded\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_prop_null));
+	char line9[] = "[6, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line9, strlen(line9)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_prop_expanded));
+	
+	// Test that the setter works
+	TASSERT_INT_EQUAL(set_ez_prop_expanded_count, 0);
+	TASSERT_INT_EQUAL(get_ez_prop_expanded_count, 0);
+	char line10[] = "[1, \"setprop\", \"/ez_prop_expanded\", "
+	                  "[[123,[]], 2.5, true, null, \"test\", [1,2,3], {1:2,3:4}]"
+	                "]";
+	TASSERT(shet_process_line(&state, line10, strlen(line10)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(set_ez_prop_expanded_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_expanded_count, 0);
+	TASSERT_INT_EQUAL(transmit_count, 13);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
+	TASSERT_INT_EQUAL(ez_prop_expanded_int, 123);
+	TASSERT(ez_prop_expanded_float == 2.5);
+	TASSERT(ez_prop_expanded_bool == true);
+	TASSERT(strcmp(ez_prop_expanded_string, "test") == 0);
+	TASSERT_JSON_EQUAL_TOK_STR(ez_prop_expanded_array, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(ez_prop_expanded_object, "{1:2,3:4}");
+	
+	// Test that the getter works
+	TASSERT_INT_EQUAL(set_ez_prop_expanded_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_expanded_count, 0);
+	char line11[] = "[1, \"getprop\", \"/ez_prop_expanded\"]";
+	TASSERT(shet_process_line(&state, line11, strlen(line11)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(set_ez_prop_expanded_count, 1);
+	TASSERT_INT_EQUAL(get_ez_prop_expanded_count, 1);
+	TASSERT_INT_EQUAL(transmit_count, 14);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,"
+		"[[123,[]], 2.500000, true, null, \"test\", [1,2,3], {1:2,3:4}]"
+		"]");
+	
+	return true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Test EZSHET Variables-as-Properties
+////////////////////////////////////////////////////////////////////////////////
+
+// Test a single simple integer variable property
+int ez_var_prop = 123;
+EZSHET_DECLARE_VAR_PROP(ez_var_prop);
+EZSHET_DECLARE_VAR_PROP(ez_var_prop);
+EZSHET_VAR_PROP("/ez_var_prop", ez_var_prop, SHET_INT);
+
+// Test an unpacked variable property
+int ez_var_prop_args_i = 0;
+double ez_var_prop_args_f = 0;
+bool ez_var_prop_args_b = false;
+char ez_var_prop_args_s[100];
+char ez_var_prop_args_a[100];
+char ez_var_prop_args_o[100];
+EZSHET_VAR_PROP("/ez_var_prop_args",
+	ez_var_prop_args, SHET_ARRAY_BEGIN,
+		_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_END,
+			ez_var_prop_args_i, SHET_INT,
+		_, SHET_ARRAY_END,
+		ez_var_prop_args_f, SHET_FLOAT,
+		ez_var_prop_args_b, SHET_BOOL,
+		_                 , SHET_NULL,
+		ez_var_prop_args_s, SHET_STRING,
+		ez_var_prop_args_a, SHET_ARRAY,
+		ez_var_prop_args_o, SHET_OBJECT,
+	_, SHET_ARRAY_END
+);
+
+bool test_EZSHET_VAR_PROP(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test that registration works
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
+	EZSHET_ADD(&state, ez_var_prop);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkprop\",\"/ez_var_prop\"]");
+	
+	// Test that it does not appear if registration fails
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
+	char line1[] = "[1, \"return\", 1, \"fail\"]";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
+	
+	// Test that registration works if it succeeds
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
+	EZSHET_ADD(&state, ez_var_prop);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"mkprop\",\"/ez_var_prop\"]");
+	char line2[] = "[2, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_var_prop));
+	
+	// Test that the getter works
+	char line3[] = "[0, \"getprop\", \"/ez_var_prop\"]";
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 0, 123]");
+	
+	// Test that the setter works
+	char line4[] = "[0, \"setprop\", \"/ez_var_prop\", 321]";
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 0, null]");
+	TASSERT_INT_EQUAL(ez_var_prop, 321);
+	
+	// Test that the setter fails with a bad type
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_var_prop), 0);
+	char line5[] = "[0, \"setprop\", \"/ez_var_prop\", false]";
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 1, \"Expected int\"]");
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_var_prop), 1);
+	
+	// Test that the property can be unregistered
+	TASSERT(EZSHET_IS_REGISTERED(ez_var_prop));
+	EZSHET_REMOVE(&state, ez_var_prop);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmprop\",\"/ez_var_prop\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
+	
+	// Register a more complex variable property
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop_args));
+	EZSHET_ADD(&state, ez_var_prop_args);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"mkprop\",\"/ez_var_prop_args\"]");
+	char line6[] = "[4, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_var_prop_args));
+	
+	// Test that the setter works
+	char line7[] = "[0, \"setprop\", \"/ez_var_prop_args\", "
+	               "[[[], 123], 2.5, true, null, \"testing\", [1,2,3], {1:2,3:4}]"
+	               "]";
+	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 0, null]");
+	TASSERT_INT_EQUAL(ez_var_prop_args_i, 123);
+	TASSERT(ez_var_prop_args_f == 2.5);
+	TASSERT(ez_var_prop_args_b == true);
+	TASSERT(strcmp(ez_var_prop_args_s, "testing") == 0);
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_a, "[1, 2, 3]");
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_o, "{1:2, 3:4}");
+	
+	// Test that the setter fails with the wrong types (note that only the last
+	// value is of the wrong type, this ensures that earlier values aren't
+	// changed before the typecheck finishes!).
+	char line8[] = "[0, \"setprop\", \"/ez_var_prop_args\", "
+	               "[[[], 321], 1.0, false, null, \"fail\", [3,2,1], \"fail\"]"
+	               "]";
+	TASSERT(shet_process_line(&state, line8, strlen(line8)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 10);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 1,"
+	                           "\"Expected [[[], int], float, bool, null, string, array, object]\"]");
+	
+	// And that the properties remain intact
+	TASSERT_INT_EQUAL(ez_var_prop_args_i, 123);
+	TASSERT(ez_var_prop_args_f == 2.5);
+	TASSERT(ez_var_prop_args_b == true);
+	TASSERT(strcmp(ez_var_prop_args_s, "testing") == 0);
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_a, "[1, 2, 3]");
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_o, "{1:2, 3:4}");
+	
+	// Test that the values are safe after a second, long, nonsense line is processed by SHET
+	char line9[] = "[0, \"nonsense\", \"/ez_var_prop_args\", "
+	               "[[[], 123], 2.5, true, null, \"testing\", [1,2,3], {1:2,3:4}]"
+	               "]";
+	TASSERT(shet_process_line(&state, line9, strlen(line9)) != SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 11);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 1, \"Unknown command.\"]");
+	TASSERT_INT_EQUAL(ez_var_prop_args_i, 123);
+	TASSERT(ez_var_prop_args_f == 2.5);
+	TASSERT(ez_var_prop_args_b == true);
+	TASSERT(strcmp(ez_var_prop_args_s, "testing") == 0);
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_a, "[1, 2, 3]");
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_o, "{1:2, 3:4}");
+	
+	// Test that the getter works
+	char line10[] = "[0, \"getprop\", \"/ez_var_prop_args\"]";
+	TASSERT(shet_process_line(&state, line10, strlen(line10)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 12);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 0, "
+	                           "[[[], 123], 2.500000, true, null, \"testing\", [1,2,3], {1:2,3:4}]"
+	                           "]");
+	
+	return true;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Test EZSHET Actions
+////////////////////////////////////////////////////////////////////////////////
+
+// Create an action which takes nothing and returns nothing. Also test
+// declaration works.
+unsigned int ez_action_count = 0;
+void ez_action(shet_state_t *shet) {
+	USE(shet);
+	ez_action_count ++;
+}
+EZSHET_DECLARE_ACTION(ez_action);
+EZSHET_DECLARE_ACTION(ez_action);
+EZSHET_ACTION("/ez_action", ez_action, SHET_NULL);
+
+// Create an action which takes one of every type and returns a single value.
+// Also tests when declarations aren't used.
+unsigned int ez_action_args_count = 0;
+int         ez_action_args_i = 0;
+double      ez_action_args_f = 0.0;
+bool        ez_action_args_b = false;
+const char *ez_action_args_s = NULL;
+shet_json_t ez_action_args_a;
+shet_json_t ez_action_args_o;
+int ez_action_args(shet_state_t *shet, int i, double f, bool b, const char *s, shet_json_t a, shet_json_t o) {
+	USE(shet);
+	ez_action_args_count ++;
+	ez_action_args_i = i;
+	ez_action_args_f = f;
+	ez_action_args_b = b;
+	ez_action_args_s = s;
+	ez_action_args_a = a;
+	ez_action_args_o = o;
+	return 1337;
+}
+EZSHET_ACTION("/ez_action_args", ez_action_args,
+	SHET_INT,
+	SHET_ARRAY_BEGIN,
+		SHET_INT,
+		SHET_FLOAT,
+	SHET_ARRAY_END,
+	SHET_BOOL,
+	SHET_NULL,
+	SHET_STRING,
+	SHET_ARRAY,
+	SHET_OBJECT);
+
+// Create an action which takes one of every type and returns those same values
+// (possibly inverted, when possible).
+unsigned int ez_action_ret_args_count = 0;
+void ez_action_ret_args(shet_state_t *shet,
+                       int *ri, double *rf, bool *rb, const char **rs, const char **ra, const char **ro,
+                       int i, double f, bool b, const char *s, shet_json_t a, shet_json_t o) {
+	USE(shet);
+	ez_action_ret_args_count ++;
+	*ri = -i;
+	*rf = -f;
+	*rb = !b;
+	*rs = s;
+	a.line[a.token->end] = '\0';
+	*ra = a.line + a.token->start;
+	o.line[o.token->end] = '\0';
+	*ro = o.line + o.token->start;;
+}
+EZSHET_ACTION("/ez_action_ret_args", ez_action_ret_args,
+	EZSHET_RETURN_ARGS_BEGIN,
+		SHET_ARRAY_BEGIN,
+			SHET_INT,
+			SHET_FLOAT,
+		SHET_ARRAY_END,
+		SHET_BOOL,
+		SHET_NULL,
+		SHET_STRING,
+		SHET_ARRAY,
+		SHET_OBJECT,
+	EZSHET_RETURN_ARGS_END,
+	SHET_ARRAY_BEGIN,
+		SHET_INT,
+		SHET_FLOAT,
+	SHET_ARRAY_END,
+	SHET_BOOL,
+	SHET_NULL,
+	SHET_STRING,
+	SHET_ARRAY,
+	SHET_OBJECT);
+
+
+bool test_EZSHET_ACTION(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test that registration works
+	TASSERT(!EZSHET_IS_REGISTERED(ez_action));
+	EZSHET_ADD(&state, ez_action);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkaction\",\"/ez_action\"]");
+	
+	// Test that it does not appear if registration fails
+	TASSERT(!EZSHET_IS_REGISTERED(ez_action));
+	char line1[] = "[1, \"return\", 1, \"fail\"]";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	TASSERT(!EZSHET_IS_REGISTERED(ez_action));
+	
+	// Test that it does appear after successful registration
+	EZSHET_ADD(&state, ez_action);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"mkaction\",\"/ez_action\"]");
+	char line2[] = "[2, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_action));
+	
+	// Test that the action now works
+	char line3[] = "[0, \"docall\", \"/ez_action\"]";
+	TASSERT_INT_EQUAL(ez_action_count, 0);
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,null]");
+	TASSERT_INT_EQUAL(ez_action_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action), 0);
+	
+	// Test that the action rejects anything other than a null argument
+	char line4[] = "[0, \"docall\", \"/ez_action\", 123]";
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",1,\"Expected no value\"]");
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action), 1);
+	TASSERT_INT_EQUAL(ez_action_count, 1);
+	
+	// Unregister the action and make sure it stops working
+	EZSHET_REMOVE(&state, ez_action);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmaction\",\"/ez_action\"]");
+	
+	// Register the action with many arguments and a return.
+	EZSHET_ADD(&state, ez_action_args);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"mkaction\",\"/ez_action_args\"]");
+	char line5[] = "[4, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_action_args));
+	
+	// Test that the action works
+	char line6[] = "[0, \"docall\", \"/ez_action_args\","
+	               "[1,2.5],true,null,\"hello\",[1,2,3],{1:2,3:4}"
+	               "]";
+	TASSERT_INT_EQUAL(ez_action_args_count, 0);
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,1337]");
+	TASSERT_INT_EQUAL(ez_action_args_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action_args), 0);
+	
+	// Check the arguments made it
+	TASSERT_INT_EQUAL(ez_action_args_i, 1);
+	TASSERT(ez_action_args_f == 2.5);
+	TASSERT(ez_action_args_b == true);
+	TASSERT(strcmp(ez_action_args_s, "hello") == 0);
+	TASSERT_JSON_EQUAL_TOK_STR(ez_action_args_a, "[1,2,3]");
+	TASSERT_JSON_EQUAL_TOK_STR(ez_action_args_o, "{1:2,3:4}");
+	
+	// Test wrong arguments break it
+	char line7[] = "[0, \"docall\", \"/ez_action_args\","
+	               "1,2,3,\"magic unicorn fairies\""
+	               "]";
+	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",1,\""
+	                           "Expected [int, float], bool, null, string, array, object"
+	                           "\"]");
+	TASSERT_INT_EQUAL(ez_action_args_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action_args), 1);
+	
+	// Get rid of it
+	EZSHET_REMOVE(&state, ez_action_args);
+	TASSERT_INT_EQUAL(transmit_count, 10);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[5,\"rmaction\",\"/ez_action_args\"]");
+	
+	// Register the action with many arguments which returns all its arguments.
+	EZSHET_ADD(&state, ez_action_ret_args);
+	TASSERT_INT_EQUAL(transmit_count, 11);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[6,\"mkaction\",\"/ez_action_ret_args\"]");
+	char line8[] = "[6, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line8, strlen(line8)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_action_ret_args));
+	
+	// Test that the action works
+	char line9[] = "[0, \"docall\", \"/ez_action_ret_args\","
+	               "[1,2.5],true,null,\"hello\",[1,2,3],{1:2,3:4}"
+	               "]";
+	TASSERT_INT_EQUAL(ez_action_ret_args_count, 0);
+	TASSERT(shet_process_line(&state, line9, strlen(line9)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 12);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,"
+	                          "[-1,-2.500000],false,null,\"hello\",[1,2,3],{1:2,3:4}"
+	                          "]");
+	TASSERT_INT_EQUAL(ez_action_ret_args_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action_ret_args), 0);
+	
+	// Test the wrong arguments still break it
+	char line10[] = "[0, \"docall\", \"/ez_action_ret_args\","
+	               "1,2,3,\"magic gremlin fairies\""
+	               "]";
+	TASSERT(shet_process_line(&state, line10, strlen(line10)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 13);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",1,\""
+	                           "Expected [int, float], bool, null, string, array, object"
+	                           "\"]");
+	TASSERT_INT_EQUAL(ez_action_ret_args_count, 1);
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_action_ret_args), 1);
+	
+	return true;
+}
+
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // World starts here
 ////////////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char *argv[]) {
+	USE(argc);
+	USE(argv);
+	
 	bool (*tests[])(void) = {
-		test_assert_int,
+		test_SHET_PARSE_JSON_VALUE_INT,
+		test_SHET_PARSE_JSON_VALUE_FLOAT,
+		test_SHET_PARSE_JSON_VALUE_BOOL,
+		test_SHET_PARSE_JSON_VALUE_STRING,
+		test_SHET_JSON_IS_TYPE,
 		test_deferred_utilities,
 		test_shet_state_init,
 		test_shet_process_line_errors,
@@ -1400,11 +2855,20 @@ int main(int argc, char *argv[]) {
 		test_shet_set_prop_and_shet_get_prop,
 		test_shet_make_event,
 		test_shet_watch_event,
+		test_SHET_UNPACK_JSON,
+		test_SHET_PACK_JSON_LENGTH,
+		test_SHET_PACK_JSON,
+		test_EZSHET_WATCH,
+		test_EZSHET_EVENT,
+		test_EZSHET_ACTION,
+		test_EZSHET_PROP,
+		test_EZSHET_VAR_PROP,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
 	size_t num_passes = 0;
-	for (int i = 0; i < num_tests; i++) {
+	size_t i;
+	for (i = 0; i < num_tests; i++) {
 		bool result = tests[i]();
 		if (result)
 			fprintf(stderr, ".");
@@ -1414,9 +2878,9 @@ int main(int argc, char *argv[]) {
 		num_passes += result ? 1 : 0;
 	}
 	
-	fprintf(stderr, "\n%s: %d of %d tests passed!\n",
+	fprintf(stderr, "\n%s: %u of %u tests passed!\n",
 	        (num_passes == num_tests) ? "PASS" : "FAIL",
-	        num_passes,
-	        num_tests);
+	        (unsigned int)num_passes,
+	        (unsigned int)num_tests);
 	return (num_passes == num_tests) ? 0 : -1;
 }

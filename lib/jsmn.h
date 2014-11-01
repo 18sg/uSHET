@@ -5,6 +5,8 @@
 extern "C" {
 #endif
 
+#include <stddef.h>
+
 /**
  * JSON type identifier. Basic types are:
  * 	o Object

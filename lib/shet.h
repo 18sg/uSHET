@@ -14,6 +14,11 @@
 extern "C" {
 #endif
 
+// Utility macro to "use" a variable to stop GCC complaining.
+#ifndef USE
+#define USE(x) (void)(x)
+#endif
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // Resource allocation constants
@@ -24,7 +29,7 @@ extern "C" {
  * message.
  */
 #ifndef SHET_NUM_TOKENS
-#define SHET_NUM_TOKENS 20
+#define SHET_NUM_TOKENS 30
 #endif
 
 /**
@@ -67,21 +72,34 @@ typedef struct shet_event shet_event_t;
 
 
 /**
+ * A tokenised JSON value.
+ */
+typedef struct {
+	// The underlying JSON string. Users should not rely on the whole of this
+	// string being well formed and should only access the parts of it indicated
+	// by the supplied token.
+	char      *line;
+	
+	// The JSMN token for the JSON value passed. This token is part of an array of
+	// tokens such that if this token refers to an array or object, the first
+	// element of the array (or first key in the object) will be at token[1] and
+	// so on.
+	jsmntok_t *token;
+} shet_json_t;
+
+
+
+/**
  * All callbacks should be of this type.
  *
- * @param state The SHET state object associated with the callback
- * @param json A string containing relevant JSON sent to the callback (if
- *             applicable). Note that users should not read areas of the
- *             string not referred to by the supplied jsmn token since they may
- *             be mangled.
- * @param token Pointer to the first token in an array of jsmn tokens describing
- *              the JSON passed to the callback.
+ * @param state The SHET state object associated with the callback.
+ * @param json The JSON provided to the callback. This may be undefined and, in
+ *             this case, must not be accessed.
  * @param user_data A user-defined pointer chosen when the callback was
  *                  registered.
  */
 typedef void (*shet_callback_t)(shet_state_t *state,
-                                char *json,
-                                jsmntok_t *token,
+                                shet_json_t json,
                                 void *user_data);
 
 
@@ -160,7 +178,7 @@ void shet_state_init(shet_state_t *state,
  *
  * @param state The global SHET state.
  * @param callback The callback function to use for unhandled errors. Set to
- *                 NULL to disable.
+ *                 NULL to disable. The JSON value is undefined.
  * @param callback_arg User defined data to be passed to the callback.
  */
 void shet_set_error_callback(shet_state_t *state,
@@ -409,7 +427,7 @@ void shet_call_action(shet_state_t *state,
  *                      the property is removed.
  * @param get_callback Callback function which gets the value of the property.
  *                     This function must return the value to SHET e.g. using
- *                     shet_return.
+ *                     shet_return. The JSON passed is undefined.
  * @param set_callback Callback function which sets the value of the property.
  *                     This should be given a JSON array which contains a single
  *                     JSON value to set as the value of the property. This
@@ -633,11 +651,11 @@ void shet_raise_event(shet_state_t *state,
  * @param created_callback Callback function called whenever the event is
  *                         created in the SHET tree. This function must return
  *                         success to SHET e.g. using shet_return. NULL if
- *                         unused.
+ *                         unused. The passed JSON is undefined.
  * @param deleted_callback Callback function called whenever the event is
  *                         deleted in the SHET tree. This function must return
  *                         success to SHET e.g. using shet_return. NULL if
- *                         unused.
+ *                         unused. The passed JSON is undefined.
  * @param event_arg User-defined pointer to be passed to the event callbacks.
  * @param watch_deferred A pointer to a deferred_t struct responsible for
  *                       event watching callbacks. This struct must remain live
