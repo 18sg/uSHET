@@ -2,13 +2,17 @@
  * A library of easy-to-use wrapper macros for uSHET which handle the "common
  * case" uses of uSHET with less boilerplate code.  Details such as defining
  * shet_deferred_t objects, recording success of registration and, most
- * significantly, unpacking JSON into native C types are automated.
+ * significantly, unpacking/packing JSON into/from native C types is automated.
  *
- * Note: the implementation of this library should be regarded as a little bit
- * magic due to its heavy use of advanced pre-processor macros and the
- * GCC-specific __attribute__((weak)). As a result, the implementation of these
- * macros is largely contained within lib/ezshet.h to minimise noise when
- * reading this header.
+ * The implementation of this library should be regarded as a little bit magic
+ * due to its heavy use of advanced pre-processor macros. An unfortunate
+ * side-effect of this is that simple (even syntactic) errors can result in
+ * enormous and inpenetrable compiler error messages. Short of groking the
+ * source, users are advised to very carefully check their code surrounding
+ * these macros against the documentation provided here.
+ *
+ * The implementation of these macros is hidden within lib/ezshet_internal.h to
+ * minimise noise when reading this header.
  */
 
 
