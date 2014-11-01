@@ -119,7 +119,7 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 		} \
 		/* Print the difference */ \
 		fprintf(stderr, " > \"%.*s\"\n", (ta)->end-(ta)->start, a+(ta)->start);\
-		fprintf(stderr, " >  ", a);\
+		fprintf(stderr, " >  ");\
 		if (da.start-(ta)->start == db.start-(tb)->start) { \
 			for (int i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "|\n"); \
@@ -297,7 +297,7 @@ bool test_SHET_JSON_IS_TYPE(void) {
 	};
 	size_t num_strings = sizeof(strings)/sizeof(char *);
 	
-	for (int i = 0; i < num_strings; i++) {
+	for (size_t i = 0; i < num_strings; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -359,7 +359,7 @@ bool test_SHET_PARSE_JSON_VALUE_INT(void) {
 	int      c_ints[] = {  0,     123,     -1,     +1 };
 	size_t num = sizeof(c_ints)/sizeof(int);
 	
-	for (int i = 0; i < num; i++) {
+	for (size_t i = 0; i < num; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -386,7 +386,7 @@ bool test_SHET_PARSE_JSON_VALUE_FLOAT(void) {
 	double   c_floats[] = { 0.0,    1.5,     -1.5,     +1.5  ,   1e7};
 	size_t num = sizeof(c_floats)/sizeof(double);
 	
-	for (int i = 0; i < num; i++) {
+	for (size_t i = 0; i < num; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -413,7 +413,7 @@ bool test_SHET_PARSE_JSON_VALUE_BOOL(void) {
 	bool     c_bools[] = {  true,     false};
 	size_t num = sizeof(c_bools)/sizeof(bool);
 	
-	for (int i = 0; i < num; i++) {
+	for (size_t i = 0; i < num; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -442,7 +442,7 @@ bool test_SHET_PARSE_JSON_VALUE_STRING(void) {
 	char    *c_strings[] = {"", "I am a magical string!"};
 	size_t num = sizeof(c_strings)/sizeof(char *);
 	
-	for (int i = 0; i < num; i++) {
+	for (size_t i = 0; i < num; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -864,6 +864,7 @@ bool test_shet_register(void) {
 	// occurred. Note: this function assumes only register and
 	// event/action/property/watch calls.
 	void transmit(const char *data, void *user_data) {
+		USE(user_data);
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[100];
@@ -913,6 +914,8 @@ bool test_shet_register(void) {
 	
 	// Callback for "make" functions and the like
 	void make(shet_state_t *state, shet_json_t json, void *user_data) {
+		USE(state);
+		USE(json);
 		size_t i = (const char **)user_data - paths;
 		cb_counts[i]++;
 	}
@@ -1047,6 +1050,8 @@ bool test_shet_register(void) {
 	}
 	TASSERT_INT_EQUAL(bad_path_count, 0);
 	TASSERT_INT_EQUAL(bad_tx_count, 0);
+	
+	return true;
 }
 
 
@@ -1097,17 +1102,23 @@ bool test_return(void) {
 	
 	// A function which immediately returns nothing
 	void return_null(shet_state_t *state, shet_json_t json, void *user_data) {
+		USE(json);
+		USE(user_data);
 		shet_return(state, 0, NULL);
 	}
 	
 	// A function which immediately returns a value
 	void return_value(shet_state_t *state, shet_json_t json, void *user_data) {
+		USE(json);
+		USE(user_data);
 		shet_return(state, 0, "[1,2,3]");
 	}
 	
 	// A function which doesn't respond but simply copies down the ID
 	char return_id[100];
 	void return_later(shet_state_t *state, shet_json_t json, void *user_data) {
+		USE(json);
+		USE(user_data);
 		strcpy(return_id, shet_get_return_id(state));
 	}
 	
@@ -1452,10 +1463,7 @@ bool test_shet_make_event(void) {
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
 	
-	shet_deferred_t deferred;
 	shet_event_t event;
-	callback_result_t result;
-	result.count = 0;
 	
 	// Make sure events can be created
 	shet_make_event(&state, "/test/event", &event, NULL, NULL, NULL, NULL);
@@ -1592,24 +1600,14 @@ bool test_SHET_UNPACK_JSON(void) {
 	int i4 = 0;
 	double f1 = 0.0;
 	double f2 = 0.0;
-	double f3 = 0.0;
-	double f4 = 0.0;
 	bool b1 = false;
 	bool b2 = false;
-	bool b3 = false;
-	bool b4 = false;
 	const char *s1 = NULL;
 	const char *s2 = NULL;
-	const char *s3 = NULL;
-	const char *s4 = NULL;
 	shet_json_t a1; a1.token = NULL;
 	shet_json_t a2; a2.token = NULL;
-	shet_json_t a3; a3.token = NULL;
-	shet_json_t a4; a4.token = NULL;
 	shet_json_t o1; a1.token = NULL;
 	shet_json_t o2; a2.token = NULL;
-	shet_json_t o3; a3.token = NULL;
-	shet_json_t o4; a4.token = NULL;
 	
 	// Flag to clear on failure
 	bool ok = true;
@@ -1767,18 +1765,14 @@ bool test_SHET_UNPACK_JSON(void) {
 
 
 bool test_SHET_PACK_JSON_LENGTH(void) {
-	int i1 = INT_MAX;
-	int i2 = INT_MIN;
-	double f1 = 999999999.999999999;
-	double f2 = -999999999.999999999;
-	bool b1 = true;
-	bool b2 = false;
+	int i = INT_MIN;
+	double f = -999999999.999999999;
+	bool bt = true;
+	bool bf = false;
 	const char s1[] = "";
 	const char s2[] = "hello, world!";
-	const char a1[] = "[1,2,3]";
-	const char a2[] = "[3,2,1]";
-	const char o1[] = "{1:2,3:4}";
-	const char o2[] = "{2:1,4:3}";
+	const char a[] = "[1,2,3]";
+	const char o[] = "{1:2,3:4}";
 	
 	// A large buffer to use for testing
 	char buf[100];
@@ -1788,16 +1782,16 @@ bool test_SHET_PACK_JSON_LENGTH(void) {
 	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(), 1);
 	
 	// Enough for a big integer
-	sprintf(buf, "%d", i2);
-	TASSERT(SHET_PACK_JSON_LENGTH(i2, SHET_INT) >= strlen(buf) + 1);
+	sprintf(buf, "%d", i);
+	TASSERT(SHET_PACK_JSON_LENGTH(i, SHET_INT) >= strlen(buf) + 1);
 	
 	// Enough for a big float
-	sprintf(buf, "%f", f2);
-	TASSERT(SHET_PACK_JSON_LENGTH(f2, SHET_FLOAT) >= strlen(buf) + 1);
+	sprintf(buf, "%f", f);
+	TASSERT(SHET_PACK_JSON_LENGTH(f, SHET_FLOAT) >= strlen(buf) + 1);
 	
 	// Enough for a bool
-	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(b1, SHET_BOOL), strlen(b1 ? "true" : "false") + 1);
-	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(b2, SHET_BOOL), strlen(b2 ? "true" : "false") + 1);
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(bt, SHET_BOOL), strlen(bt ? "true" : "false") + 1);
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(bf, SHET_BOOL), strlen(bf ? "true" : "false") + 1);
 	
 	// Enough for a null
 	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(_, SHET_NULL), strlen("null") + 1);
@@ -1809,10 +1803,10 @@ bool test_SHET_PACK_JSON_LENGTH(void) {
 	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(s2, SHET_STRING), strlen(s2) + 2 + 1);
 	
 	// Enough for an array
-	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(a1, SHET_ARRAY), strlen(a1) + 1);
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(a, SHET_ARRAY), strlen(a) + 1);
 	
 	// Enough for an object
-	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(o1, SHET_OBJECT), strlen(o1) + 1);
+	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(o, SHET_OBJECT), strlen(o) + 1);
 	
 	// Enough for a series of objects (with commas between them)
 	TASSERT_INT_EQUAL(SHET_PACK_JSON_LENGTH(s1, SHET_STRING, s2, SHET_STRING),
@@ -1940,7 +1934,7 @@ bool test_SHET_PACK_JSON(void) {
 
 // A watch callback which accepts no arguments
 int ez_watch_count = 0;
-void ez_watch(shet_state_t *shet) { ez_watch_count++; }
+void ez_watch(shet_state_t *shet) { USE(shet); ez_watch_count++; }
 EZSHET_DECLARE_WATCH(ez_watch);
 EZSHET_DECLARE_WATCH(ez_watch);
 EZSHET_WATCH("/ez_watch", ez_watch)
@@ -1956,6 +1950,7 @@ int ez_watch_args_array_1 = 0;
 shet_json_t ez_watch_args_array = {NULL, NULL};
 shet_json_t ez_watch_args_object = {NULL, NULL};
 void ez_watch_args(shet_state_t *shet, int i, double f, bool b, const char *s, int a0, int a1, shet_json_t a, shet_json_t o) {
+	USE(shet);
 	ez_watch_args_count++;
 	ez_watch_args_int = i;
 	ez_watch_args_float = f;
@@ -2221,10 +2216,12 @@ unsigned int get_ez_prop_count = 0;
 unsigned int set_ez_prop_count = 0;
 int ez_prop_value = 0;
 int get_ez_prop(shet_state_t *shet) {
+	USE(shet);
 	get_ez_prop_count++;
 	return ez_prop_value;
 }
 void set_ez_prop(shet_state_t *shet, int value) {
+	USE(shet);
 	set_ez_prop_count++;
 	ez_prop_value = value;
 }
@@ -2237,9 +2234,11 @@ EZSHET_PROP("/ez_prop", ez_prop, SHET_INT);
 unsigned int get_ez_prop_null_count = 0;
 unsigned int set_ez_prop_null_count = 0;
 void get_ez_prop_null(shet_state_t *shet) {
+	USE(shet);
 	get_ez_prop_null_count++;
 }
 void set_ez_prop_null(shet_state_t *shet) {
+	USE(shet);
 	set_ez_prop_null_count++;
 }
 EZSHET_PROP("/ez_prop_null", ez_prop_null, SHET_NULL);
@@ -2258,6 +2257,7 @@ char ez_prop_expanded_object_json[100];
 jsmntok_t ez_prop_expanded_object_tokens[100];
 shet_json_t ez_prop_expanded_object = {ez_prop_expanded_object_json, ez_prop_expanded_object_tokens};
 void get_ez_prop_expanded(shet_state_t *shet, int *i, double *f, bool *b, const char **s, const char **a, const char **o) {
+	USE(shet);
 	*i = ez_prop_expanded_int;
 	*f = ez_prop_expanded_float;
 	*b = ez_prop_expanded_bool;
@@ -2267,6 +2267,7 @@ void get_ez_prop_expanded(shet_state_t *shet, int *i, double *f, bool *b, const 
 	get_ez_prop_expanded_count++;
 }
 void set_ez_prop_expanded(shet_state_t *shet, int i, double f, bool b, const char *s, shet_json_t a, shet_json_t o) {
+	USE(shet);
 	ez_prop_expanded_int    = i;
 	ez_prop_expanded_float  = f;
 	ez_prop_expanded_bool   = b;
@@ -2608,6 +2609,7 @@ bool test_EZSHET_VAR_PROP(void) {
 // declaration works.
 unsigned int ez_action_count = 0;
 void ez_action(shet_state_t *shet) {
+	USE(shet);
 	ez_action_count ++;
 }
 EZSHET_DECLARE_ACTION(ez_action);
@@ -2624,6 +2626,7 @@ const char *ez_action_args_s = NULL;
 shet_json_t ez_action_args_a;
 shet_json_t ez_action_args_o;
 int ez_action_args(shet_state_t *shet, int i, double f, bool b, const char *s, shet_json_t a, shet_json_t o) {
+	USE(shet);
 	ez_action_args_count ++;
 	ez_action_args_i = i;
 	ez_action_args_f = f;
@@ -2651,6 +2654,7 @@ unsigned int ez_action_ret_args_count = 0;
 void ez_action_ret_args(shet_state_t *shet,
                        int *ri, double *rf, bool *rb, const char **rs, const char **ra, const char **ro,
                        int i, double f, bool b, const char *s, shet_json_t a, shet_json_t o) {
+	USE(shet);
 	ez_action_ret_args_count ++;
 	*ri = -i;
 	*rf = -f;
@@ -2818,6 +2822,9 @@ bool test_EZSHET_ACTION(void) {
 ////////////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char *argv[]) {
+	USE(argc);
+	USE(argv);
+	
 	bool (*tests[])(void) = {
 		test_SHET_PARSE_JSON_VALUE_INT,
 		test_SHET_PARSE_JSON_VALUE_FLOAT,
@@ -2850,7 +2857,7 @@ int main(int argc, char *argv[]) {
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
 	size_t num_passes = 0;
-	for (int i = 0; i < num_tests; i++) {
+	for (size_t i = 0; i < num_tests; i++) {
 		bool result = tests[i]();
 		if (result)
 			fprintf(stderr, ".");
@@ -2860,9 +2867,9 @@ int main(int argc, char *argv[]) {
 		num_passes += result ? 1 : 0;
 	}
 	
-	fprintf(stderr, "\n%s: %d of %d tests passed!\n",
+	fprintf(stderr, "\n%s: %u of %u tests passed!\n",
 	        (num_passes == num_tests) ? "PASS" : "FAIL",
-	        num_passes,
-	        num_tests);
+	        (unsigned int)num_passes,
+	        (unsigned int)num_tests);
 	return (num_passes == num_tests) ? 0 : -1;
 }

@@ -475,8 +475,9 @@ static inline double _shet_clamp_non_finite(double var) {
 		/* The root does not have a parent */ \
 		shet_json_t _parent; \
 		_parent.token = NULL; \
+		USE(_parent); \
 		/* Number of tokens unpacked so far */ \
-		size_t _num_unpacked = 0; \
+		int _num_unpacked = 0; \
 		/* Error flag */ \
 		bool _error = false; \
 		/* Unpack everything */ \
@@ -553,7 +554,7 @@ static inline double _shet_clamp_non_finite(double var) {
 #define _SHET_UNPACK_JSON_SHET_ARRAY_BEGIN(name) \
 	_SHET_UNPACK_JSON_CHECK(SHET_ARRAY); \
 	{ \
-		size_t _num_unpacked = 0; \
+		int _num_unpacked = 0; \
 		shet_json_t _parent = _json; \
 		_json.token++;
 
@@ -624,13 +625,17 @@ static inline double _shet_clamp_non_finite(double var) {
  *            with variables to extract.
  */
 #define SHET_PACK_JSON(out, ...) \
-	sprintf( \
-		out, \
-		/* The format strings (with commas between as required). */ \
-		"" MAP_SLIDE(_SHET_PACK_JSON_FORMAT_OP, SHET_ENCODE_JSON_FORMAT, EMPTY,\
-		             MAP_PAIRS(SECOND, COMMA, __VA_ARGS__)) \
-		/* The values themselves. */ \
-		MAP_PAIRS(SHET_ENCODE_JSON_VALUE, EMPTY, __VA_ARGS__));
+	IF(HAS_ARGS(__VA_ARGS__))( \
+		sprintf( \
+			out, \
+			/* The format strings (with commas between as required). */ \
+			"" MAP_SLIDE(_SHET_PACK_JSON_FORMAT_OP, SHET_ENCODE_JSON_FORMAT, EMPTY,\
+			             MAP_PAIRS(SECOND, COMMA, __VA_ARGS__)) \
+			/* The values themselves. */ \
+			MAP_PAIRS(SHET_ENCODE_JSON_VALUE, EMPTY, __VA_ARGS__)) \
+	) \
+	/* Special-case to silence warnings about empty format strings. */ \
+	IF(NOT(HAS_ARGS(__VA_ARGS__)))(out[0] = '\0')
 
 // Produces the cur_type's format string followed by a string "," if the next
 // type is appropriate.

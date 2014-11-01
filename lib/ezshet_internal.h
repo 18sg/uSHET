@@ -144,7 +144,8 @@ extern "C" {
 		                  NULL); \
 	} \
 	/* Underlying wrapper callback for watch events */ \
-	void _EZSHET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
+	void _EZSHET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) { \
+		USE(data); \
 		/* Create variables to unpack the JSON into. */ \
 		_EZSHET_DEFINE_VARS(_EZSHET_NAME_TYPES(_EZSHET_WRAP_IN_ARRAY(__VA_ARGS__))); \
 		/* Unpack the JSON. */ \
@@ -303,10 +304,12 @@ extern "C" {
 	} \
 	/* Underlying wrapper callback for property getter */ \
 	void _EZSHET_GET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
-		/* Create return variables for the getter. */ \
-		_EZSHET_DEFINE_RETURN_VARS( \
-			_EZSHET_NAME_RETURN_TYPES(type, __VA_ARGS__)); \
-		/* Execute the callback and send the return via SHET. */ \
+		USE(json); \
+		USE(data); \
+		/* Create return variables for the getter (if multiple values). */ \
+		IF(HAS_ARGS(__VA_ARGS__))( \
+			_EZSHET_DEFINE_RETURN_VARS( \
+				_EZSHET_NAME_RETURN_TYPES(type, __VA_ARGS__))); \
 		/* Store the callback value (if only one type is given and that type can be
 		 * returned). */ \
 		IF(AND(NOT(HAS_ARGS(__VA_ARGS__)), SHET_HAS_JSON_PARSED_TYPE(type)))( \
@@ -336,6 +339,7 @@ extern "C" {
 	} \
 	/* Underlying wrapper callback for property setter */ \
 	void _EZSHET_SET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
+		USE(data); \
 		/* Create variables to unpack the JSON into. */ \
 		_EZSHET_DEFINE_VARS( \
 			_EZSHET_NAME_TYPES(type,__VA_ARGS__)); \
@@ -420,6 +424,8 @@ extern "C" {
 	} \
 	/* Underlying wrapper callback for property getter */ \
 	void _EZSHET_GET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
+		USE(json); \
+		USE(data); \
 		/* Pack the property values. */ \
 		char packed_ret_val[ \
 			SHET_PACK_JSON_LENGTH(name, type, __VA_ARGS__) \
@@ -430,6 +436,7 @@ extern "C" {
 	} \
 	/* Underlying wrapper callback for property setter */ \
 	void _EZSHET_SET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
+		USE(data); \
 		/* Create variables to unpack the JSON into. */ \
 		_EZSHET_DEFINE_VARS(_EZSHET_RENAME_TYPES(name, type, __VA_ARGS__)); \
 		/* Unpack the JSON. */ \
@@ -507,6 +514,7 @@ extern "C" {
 	} \
 	/* Underlying wrapper callback for action calls */ \
 	void _EZSHET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
+		USE(data); \
 		/* Create variables to unpack the JSON into. */ \
 		_EZSHET_DEFINE_VARS( \
 			_EZSHET_NAME_TYPES( \
@@ -518,7 +526,7 @@ extern "C" {
 			_EZSHET_NAME_TYPES( \
 				_EZSHET_WRAP_IN_ARRAY( \
 					_EZSHET_JUST_ARGS(ret_type,__VA_ARGS__)))); \
-		/* Create return variables. */ \
+		/* Create return variables (if returning several values). */ \
 		_EZSHET_DEFINE_RETURN_VARS( \
 			_EZSHET_NAME_RETURN_TYPES( \
 				_EZSHET_JUST_RET_ARGS(ret_type, __VA_ARGS__))); \

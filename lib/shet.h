@@ -14,6 +14,11 @@
 extern "C" {
 #endif
 
+// Utility macro to "use" a variable to stop GCC complaining.
+#ifndef USE
+#define USE(x) (void)(x)
+#endif
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // Resource allocation constants

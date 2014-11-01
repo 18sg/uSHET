@@ -165,7 +165,6 @@ static shet_processing_error_t process_return(shet_state_t *state, shet_json_t j
 // Process a command from the server
 static shet_processing_error_t process_command(shet_state_t *state, shet_json_t json, command_callback_type_t type)
 {
-	size_t min_num_parts;
 	bool accepts_var_args;
 	switch (type) {
 		case SHET_EVENT_DELETED_CCB:
@@ -541,6 +540,10 @@ void shet_reregister(shet_state_t *state) {
 				             mkprop_deferred ? mkprop_deferred->data.return_cb.user_data : NULL);
 				break;
 			}
+			
+			// Should not occur
+			default:
+				break;
 		}
 	}
 	
