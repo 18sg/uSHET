@@ -1,5 +1,12 @@
 /**
- * Macros for working with JSON values tokenised by JSMN.
+ * Utility macros for working with JSON values tokenised by JSMN.
+ *
+ * These macros may be of use to end-users wishing to mechanise the dull parts
+ * of extracting values from JSON tokenised by JSMN.
+ *
+ * Be warned that these macros and their implementations make use of fairly
+ * advanced C pre-processor tricks so be careful using them and understand that
+ * the error messages produced can be very obtuse.
  */
 
 
@@ -15,25 +22,49 @@
 extern "C" {
 #endif
 
+////////////////////////////////////////////////////////////////////////////////
+// Type Definitions
+////////////////////////////////////////////////////////////////////////////////
 
 /**
- * These type definitions correspond with the basic JSON types and should be
- * supplied to the macros in this file when referring to a specific type.
+ * Basic JSON type names.
+ *
+ * These macros do not expand to any valid C and are only intended for
+ * consumption by macros.
  */
-#define SHET_INT    SHET_INT
-#define SHET_FLOAT  SHET_FLOAT
-#define SHET_BOOL   SHET_BOOL
-#define SHET_NULL   SHET_NULL
-#define SHET_STRING SHET_STRING
-#define SHET_ARRAY  SHET_ARRAY
-#define SHET_OBJECT SHET_OBJECT
+#define SHET_INT    SHET_INT     // A JSON integer (e.g. 123)
+#define SHET_FLOAT  SHET_FLOAT   // A JSON double-precision float (e.g. 2.5)
+#define SHET_BOOL   SHET_BOOL    // A JSON boolean (e.g. true)
+#define SHET_NULL   SHET_NULL    // A JSON null value (i.e. null)
+#define SHET_STRING SHET_STRING  // A JSON string (e.g. "hello, world")
+#define SHET_ARRAY  SHET_ARRAY   // A JSON array (e.g. [...])
+#define SHET_OBJECT SHET_OBJECT  // A JSON object (e.g. {...})
 
 /**
- * These additional types may be used only for parsing JSON and not generating
- * it. They enable the user to extract values from a complex JSON structure.
+ * Unpacked JSON array type macros.
+ *
+ * Used when explicitly defining the type of a JSON arraay and its contents. For
+ * example:
+ *
+ *   SHET_ARRAY_BEGIN,
+ *     SHET_BOOL,
+ *     SHET_ARRAY_BEGIN,
+ *       SHET_INT,
+ *       SHET_INT,
+ *       SHET_INT,
+ *     SHET_ARRAY_END,
+ *     SHET_ARRAY,
+ *   SHET_ARRAY_END
+ *
+ * The above defines a JSON type [bool, [int, int, int], [...]]. Notice that
+ * nesting is permitted and that the non-unpacked SHET_ARRAY can also be
+ * included to mean an array whose contents is not checked.
+ *
+ * Pairs of SHET_ARRAY_BEGIN and SHET_ARRAY_END should always be propperly
+ * matched and correctly nested otherwise very strange behaviour will ensue.
  */
-#define SHET_ARRAY_BEGIN   SHET_ARRAY_BEGIN
-#define SHET_ARRAY_END     SHET_ARRAY_END
+#define SHET_ARRAY_BEGIN SHET_ARRAY_BEGIN
+#define SHET_ARRAY_END   SHET_ARRAY_END
 
 
 ////////////////////////////////////////////////////////////////////////////////
