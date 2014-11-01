@@ -201,8 +201,9 @@ extern "C" {
  * @param name A C variable name. This must be declared, defined and initialised
  *             by the user.
  * @param type A type (e.g. SHET_INT). If an unpacked type (e.g.
- *             SHET_ARRAY_BEGIN) or SHET_NULL is given, the corresponding
- *             name will never be assigned to and need not exist.
+ *             SHET_ARRAY_BEGIN) or SHET_NULL is given, a variable with the
+ *             supplied name should not exist but will be used to identify this
+ *             EZSHET property.
  * @param ... A sequence of name, type arguments as above when type is an
  *            unpacked type, e.g. SHET_ARRAY_BEGIN. Note that the name given
  *            above will be used to identify the property for the purposes of

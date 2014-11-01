@@ -1343,7 +1343,7 @@ bool test_shet_make_prop(void) {
 	char line1[] = "[0,\"setprop\",\"/test/prop1\",123]";
 	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[123]");
+	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "123");
 	TASSERT_INT_EQUAL(result2.count, 0);
 	TASSERT_INT_EQUAL(transmit_count, 4);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,null]");
@@ -1352,7 +1352,7 @@ bool test_shet_make_prop(void) {
 	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 1);
 	TASSERT_INT_EQUAL(result2.count, 1);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[321]");
+	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "321");
 	TASSERT_INT_EQUAL(transmit_count, 5);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,null]");
 	
@@ -1360,7 +1360,6 @@ bool test_shet_make_prop(void) {
 	char line3[] = "[0,\"getprop\",\"/test/prop1\"]";
 	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[]");
 	TASSERT_INT_EQUAL(result2.count, 1);
 	TASSERT_INT_EQUAL(transmit_count, 6);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[1,2,3]]");
@@ -1369,7 +1368,6 @@ bool test_shet_make_prop(void) {
 	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[]");
 	TASSERT_INT_EQUAL(transmit_count, 7);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"return\",0,[3,2,1]]");
 	
@@ -1382,7 +1380,6 @@ bool test_shet_make_prop(void) {
 	char line5[] = "[0,\"getprop\",\"/test/prop1\"]";
 	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 3);
-	TASSERT_JSON_EQUAL_TOK_STR(result1.json, "[]");
 	TASSERT_INT_EQUAL(result2.count, 2);
 	TASSERT_INT_EQUAL(transmit_count, 9);
 	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\",0,[1,2,3]]");
@@ -1553,7 +1550,6 @@ bool test_shet_watch_event(void) {
 	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 2);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[]");
 	
 	// And that we can receive eventdeleted
 	shet_ignore_event(&state, "/test/event3", NULL, NULL, NULL, NULL);
@@ -1565,7 +1561,6 @@ bool test_shet_watch_event(void) {
 	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
 	TASSERT_INT_EQUAL(result1.count, 2);
 	TASSERT_INT_EQUAL(result2.count, 3);
-	TASSERT_JSON_EQUAL_TOK_STR(result2.json, "[]");
 	
 	return true;
 }
@@ -2278,12 +2273,10 @@ void set_ez_prop_expanded(shet_state_t *shet, int i, double f, bool b, const cha
 	strcpy(ez_prop_expanded_string, s);
 	memcpy(ez_prop_expanded_array_json, a.line,
 	       a.token->end * sizeof(char));
-	ez_prop_expanded_array_json[a.token->end] = '\0';
 	memcpy(ez_prop_expanded_array_tokens, a.token,
 	       shet_count_tokens(a) * sizeof(shet_json_t));
 	memcpy(ez_prop_expanded_object_json, o.line,
 	       o.token->end * sizeof(char));
-	ez_prop_expanded_object_json[o.token->end] = '\0';
 	memcpy(ez_prop_expanded_object_tokens, o.token,
 	       shet_count_tokens(o) * sizeof(shet_json_t));
 	
@@ -2450,6 +2443,162 @@ bool test_EZSHET_PROP(void) {
 	
 	return true;
 }
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Test EZSHET Variables-as-Properties
+////////////////////////////////////////////////////////////////////////////////
+
+// Test a single simple integer variable property
+int ez_var_prop = 123;
+EZSHET_DECLARE_VAR_PROP(ez_var_prop);
+EZSHET_DECLARE_VAR_PROP(ez_var_prop);
+EZSHET_VAR_PROP("/ez_var_prop", ez_var_prop, SHET_INT);
+
+// Test an unpacked variable property
+int ez_var_prop_args_i = 0;
+double ez_var_prop_args_f = 0;
+bool ez_var_prop_args_b = false;
+char ez_var_prop_args_s[100];
+char ez_var_prop_args_a[100];
+char ez_var_prop_args_o[100];
+EZSHET_VAR_PROP("/ez_var_prop_args",
+	ez_var_prop_args, SHET_ARRAY_BEGIN,
+		_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_BEGIN,
+			_, SHET_ARRAY_END,
+			ez_var_prop_args_i, SHET_INT,
+		_, SHET_ARRAY_END,
+		ez_var_prop_args_f, SHET_FLOAT,
+		ez_var_prop_args_b, SHET_BOOL,
+		_                 , SHET_NULL,
+		ez_var_prop_args_s, SHET_STRING,
+		ez_var_prop_args_a, SHET_ARRAY,
+		ez_var_prop_args_o, SHET_OBJECT,
+	_, SHET_ARRAY_END
+);
+
+bool test_EZSHET_VAR_PROP(void) {
+	shet_state_t state;
+	RESET_TRANSMIT_CB();
+	shet_state_init(&state, NULL, transmit_cb, NULL);
+	
+	// Test that registration works
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
+	EZSHET_ADD(&state, ez_var_prop);
+	TASSERT_INT_EQUAL(transmit_count, 2);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[1,\"mkprop\",\"/ez_var_prop\"]");
+	
+	// Test that it does not appear if registration fails
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
+	char line1[] = "[1, \"return\", 1, \"fail\"]";
+	TASSERT(shet_process_line(&state, line1, strlen(line1)) == SHET_PROC_OK);
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
+	
+	// Test that registration works if it succeeds
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
+	EZSHET_ADD(&state, ez_var_prop);
+	TASSERT_INT_EQUAL(transmit_count, 3);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[2,\"mkprop\",\"/ez_var_prop\"]");
+	char line2[] = "[2, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line2, strlen(line2)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_var_prop));
+	
+	// Test that the getter works
+	char line3[] = "[0, \"getprop\", \"/ez_var_prop\"]";
+	TASSERT(shet_process_line(&state, line3, strlen(line3)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 4);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 0, 123]");
+	
+	// Test that the setter works
+	char line4[] = "[0, \"setprop\", \"/ez_var_prop\", 321]";
+	TASSERT(shet_process_line(&state, line4, strlen(line4)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 5);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 0, null]");
+	TASSERT_INT_EQUAL(ez_var_prop, 321);
+	
+	// Test that the setter fails with a bad type
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_var_prop), 0);
+	char line5[] = "[0, \"setprop\", \"/ez_var_prop\", false]";
+	TASSERT(shet_process_line(&state, line5, strlen(line5)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 6);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 1, \"Expected int\"]");
+	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_var_prop), 1);
+	
+	// Test that the property can be unregistered
+	TASSERT(EZSHET_IS_REGISTERED(ez_var_prop));
+	EZSHET_REMOVE(&state, ez_var_prop);
+	TASSERT_INT_EQUAL(transmit_count, 7);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[3,\"rmprop\",\"/ez_var_prop\"]");
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
+	
+	// Register a more complex variable property
+	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop_args));
+	EZSHET_ADD(&state, ez_var_prop_args);
+	TASSERT_INT_EQUAL(transmit_count, 8);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[4,\"mkprop\",\"/ez_var_prop_args\"]");
+	char line6[] = "[4, \"return\", 0, null]";
+	TASSERT(shet_process_line(&state, line6, strlen(line6)) == SHET_PROC_OK);
+	TASSERT(EZSHET_IS_REGISTERED(ez_var_prop_args));
+	
+	// Test that the setter works
+	char line7[] = "[0, \"setprop\", \"/ez_var_prop_args\", "
+	               "[[[], 123], 2.5, true, null, \"testing\", [1,2,3], {1:2,3:4}]"
+	               "]";
+	TASSERT(shet_process_line(&state, line7, strlen(line7)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 9);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 0, null]");
+	TASSERT_INT_EQUAL(ez_var_prop_args_i, 123);
+	TASSERT(ez_var_prop_args_f == 2.5);
+	TASSERT(ez_var_prop_args_b == true);
+	TASSERT(strcmp(ez_var_prop_args_s, "testing") == 0);
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_a, "[1, 2, 3]");
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_o, "{1:2, 3:4}");
+	
+	// Test that the setter fails with the wrong types (note that only the last
+	// value is of the wrong type, this ensures that earlier values aren't
+	// changed before the typecheck finishes!).
+	char line8[] = "[0, \"setprop\", \"/ez_var_prop_args\", "
+	               "[[[], 321], 1.0, false, null, \"fail\", [3,2,1], \"fail\"]"
+	               "]";
+	TASSERT(shet_process_line(&state, line8, strlen(line8)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 10);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 1,"
+	                           "\"Expected [[[], int], float, bool, null, string, array, object]\"]");
+	
+	// And that the properties remain intact
+	TASSERT_INT_EQUAL(ez_var_prop_args_i, 123);
+	TASSERT(ez_var_prop_args_f == 2.5);
+	TASSERT(ez_var_prop_args_b == true);
+	TASSERT(strcmp(ez_var_prop_args_s, "testing") == 0);
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_a, "[1, 2, 3]");
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_o, "{1:2, 3:4}");
+	
+	// Test that the values are safe after a second, long, nonsense line is processed by SHET
+	char line9[] = "[0, \"nonsense\", \"/ez_var_prop_args\", "
+	               "[[[], 123], 2.5, true, null, \"testing\", [1,2,3], {1:2,3:4}]"
+	               "]";
+	TASSERT(shet_process_line(&state, line9, strlen(line9)) != SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 11);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 1, \"Unknown command.\"]");
+	TASSERT_INT_EQUAL(ez_var_prop_args_i, 123);
+	TASSERT(ez_var_prop_args_f == 2.5);
+	TASSERT(ez_var_prop_args_b == true);
+	TASSERT(strcmp(ez_var_prop_args_s, "testing") == 0);
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_a, "[1, 2, 3]");
+	TASSERT_JSON_EQUAL_STR_STR(ez_var_prop_args_o, "{1:2, 3:4}");
+	
+	// Test that the getter works
+	char line10[] = "[0, \"getprop\", \"/ez_var_prop_args\"]";
+	TASSERT(shet_process_line(&state, line10, strlen(line10)) == SHET_PROC_OK);
+	TASSERT_INT_EQUAL(transmit_count, 12);
+	TASSERT_JSON_EQUAL_STR_STR(transmit_last_data, "[0,\"return\", 0, "
+	                           "[[[], 123], 2.500000, true, null, \"testing\", [1,2,3], {1:2,3:4}]"
+	                           "]");
+	
+	return true;
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // Test EZSHET Actions
@@ -2696,6 +2845,7 @@ int main(int argc, char *argv[]) {
 		test_EZSHET_EVENT,
 		test_EZSHET_ACTION,
 		test_EZSHET_PROP,
+		test_EZSHET_VAR_PROP,
 	};
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	

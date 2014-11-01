@@ -87,8 +87,9 @@ typedef struct {
 /**
  * All callbacks should be of this type.
  *
- * @param state The SHET state object associated with the callback
- * @param json The JSON provided to the user.
+ * @param state The SHET state object associated with the callback.
+ * @param json The JSON provided to the callback. This may be undefined and, in
+ *             this case, must not be accessed.
  * @param user_data A user-defined pointer chosen when the callback was
  *                  registered.
  */
@@ -172,7 +173,7 @@ void shet_state_init(shet_state_t *state,
  *
  * @param state The global SHET state.
  * @param callback The callback function to use for unhandled errors. Set to
- *                 NULL to disable.
+ *                 NULL to disable. The JSON value is undefined.
  * @param callback_arg User defined data to be passed to the callback.
  */
 void shet_set_error_callback(shet_state_t *state,
@@ -421,7 +422,7 @@ void shet_call_action(shet_state_t *state,
  *                      the property is removed.
  * @param get_callback Callback function which gets the value of the property.
  *                     This function must return the value to SHET e.g. using
- *                     shet_return.
+ *                     shet_return. The JSON passed is undefined.
  * @param set_callback Callback function which sets the value of the property.
  *                     This should be given a JSON array which contains a single
  *                     JSON value to set as the value of the property. This
@@ -645,11 +646,11 @@ void shet_raise_event(shet_state_t *state,
  * @param created_callback Callback function called whenever the event is
  *                         created in the SHET tree. This function must return
  *                         success to SHET e.g. using shet_return. NULL if
- *                         unused.
+ *                         unused. The passed JSON is undefined.
  * @param deleted_callback Callback function called whenever the event is
  *                         deleted in the SHET tree. This function must return
  *                         success to SHET e.g. using shet_return. NULL if
- *                         unused.
+ *                         unused. The passed JSON is undefined.
  * @param event_arg User-defined pointer to be passed to the event callbacks.
  * @param watch_deferred A pointer to a deferred_t struct responsible for
  *                       event watching callbacks. This struct must remain live

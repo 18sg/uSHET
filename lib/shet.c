@@ -166,10 +166,12 @@ static shet_processing_error_t process_return(shet_state_t *state, shet_json_t j
 static shet_processing_error_t process_command(shet_state_t *state, shet_json_t json, command_callback_type_t type)
 {
 	size_t min_num_parts;
+	bool accepts_var_args;
 	switch (type) {
 		case SHET_EVENT_DELETED_CCB:
 		case SHET_EVENT_CREATED_CCB:
 		case SHET_GET_PROP_CCB:
+			accepts_var_args = false;
 			if (json.token[0].size != 3) {
 				DPRINTF("Command accepts no arguments.\n");
 				return SHET_PROC_MALFORMED_ARGUMENTS;
@@ -178,6 +180,7 @@ static shet_processing_error_t process_command(shet_state_t *state, shet_json_t 
 			}
 		
 		case SHET_SET_PROP_CCB:
+			accepts_var_args = false;
 			if (json.token[0].size != 4) {
 				DPRINTF("Command accepts exactly one argument.\n");
 				return SHET_PROC_MALFORMED_ARGUMENTS;
@@ -187,6 +190,7 @@ static shet_processing_error_t process_command(shet_state_t *state, shet_json_t 
 		
 		case SHET_EVENT_CCB:
 		case SHET_CALL_CCB:
+			accepts_var_args = true;
 			if (json.token[0].size < 3) {
 				DPRINTF("Commands must have at least 3 components.\n");
 				return SHET_PROC_MALFORMED_ARGUMENTS;
@@ -284,28 +288,33 @@ static shet_processing_error_t process_command(shet_state_t *state, shet_json_t 
 		
 		// Find the first argument (if one is present)
 		shet_json_t args_json = shet_next_token(name_json);
-		jsmntok_t *first_arg_token = args_json.token;
 		
-		// Truncate the array (remove the ID, command and path)
-		args_json.token = first_arg_token - 1;
-		*args_json.token = json.token[0];
-		args_json.token->size = json.token[0].size - 3;
-		if (args_json.token->size > 0) {
-			// If the array string now starts with a string, move the start to just
-			// before the opening quotes, otherwise move to just before the indicated
-			// start of the first element.
-			if (first_arg_token->type == JSMN_STRING)
-				args_json.token->start = first_arg_token->start - 2;
-			else
-				args_json.token->start = first_arg_token->start - 1;
-		} else {
-			// If the new array is empty, the array's first character is just before the
-			// closing bracket.
-			args_json.token->start = args_json.token->end - 2;
+		// If varadic arguments are accepted, truncate the command array to just the
+		// arguments and set this as the argument to the callback.
+		if (accepts_var_args) {
+			jsmntok_t *first_arg_token = args_json.token;
+			
+			// Truncate the array (remove the ID, command and path)
+			args_json.token = first_arg_token - 1;
+			*args_json.token = json.token[0];
+			args_json.token->size = json.token[0].size - 3;
+			if (args_json.token->size > 0) {
+				// If the array string now starts with a string, move the start to just
+				// before the opening quotes, otherwise move to just before the indicated
+				// start of the first element.
+				if (first_arg_token->type == JSMN_STRING)
+					args_json.token->start = first_arg_token->start - 2;
+				else
+					args_json.token->start = first_arg_token->start - 1;
+			} else {
+				// If the new array is empty, the array's first character is just before the
+				// closing bracket.
+				args_json.token->start = args_json.token->end - 2;
+			}
+			// Add the opening bracket. Note that this *may* corrupt the path argument but
+			// since it won't be used again, this isn't a problem.
+			args_json.line[args_json.token->start] = '[';
 		}
-		// Add the opening bracket. Note that this *may* corrupt the path argument but
-		// since it won't be used again, this isn't a problem.
-		args_json.line[args_json.token->start] = '[';
 		
 		if (callback_fun != NULL)
 			callback_fun(state, args_json, user_data);
@@ -354,7 +363,7 @@ static shet_processing_error_t process_message(shet_state_t *state, shet_json_t 
 		return process_command(state, json, SHET_CALL_CCB);
 	else {
 		DPRINTF("Unknown command: \"%s\"\n", command);
-		shet_return(state, 1, "Unknown command.");
+		shet_return(state, 1, "\"Unknown command.\"");
 		return SHET_PROC_UNKNOWN_COMMAND;
 	}
 }

@@ -271,7 +271,7 @@ extern "C" {
 	extern unsigned int _EZSHET_ERROR_COUNT_VAR(name); \
 	/* Variable storing the path of the property */ \
 	extern const char _EZSHET_PATH_VAR(name)[]; \
-	/* The deferreds for the event and its registration. */ \
+	/* The deferreds for the property and its registration. */ \
 	extern shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
 	extern shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
 
@@ -338,27 +338,18 @@ extern "C" {
 	void _EZSHET_SET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
 		/* Create variables to unpack the JSON into. */ \
 		_EZSHET_DEFINE_VARS( \
-			_EZSHET_NAME_TYPES( \
-				IF(HAS_ARGS(__VA_ARGS__))(_EZSHET_WRAP_IN_ARRAY(type,__VA_ARGS__)) \
-				IF(NOT(HAS_ARGS(__VA_ARGS__)))(_EZSHET_WRAP_IN_ARRAY(type)) \
-			)); \
+			_EZSHET_NAME_TYPES(type,__VA_ARGS__)); \
 		/* Unpack the JSON. */ \
 		bool error = false; \
 		SHET_UNPACK_JSON(json, error=true;, \
-			_EZSHET_NAME_TYPES( \
-				IF(HAS_ARGS(__VA_ARGS__))(_EZSHET_WRAP_IN_ARRAY(type,__VA_ARGS__)) \
-				IF(NOT(HAS_ARGS(__VA_ARGS__)))(_EZSHET_WRAP_IN_ARRAY(type)) \
-			)); \
+			_EZSHET_NAME_TYPES(type,__VA_ARGS__)); \
 		/* Execute the callback and send the return via SHET. */ \
 		if (!error) { \
 			/* Execute the callback. */ \
 			CAT(set_,name)(shet \
 			     /* Pass arguments. */ \
 			     _EZSHET_ARGS_VARS( \
-			       _EZSHET_NAME_TYPES( \
-			         IF(HAS_ARGS(__VA_ARGS__))(_EZSHET_WRAP_IN_ARRAY(type,__VA_ARGS__)) \
-			         IF(NOT(HAS_ARGS(__VA_ARGS__)))(_EZSHET_WRAP_IN_ARRAY(type)) \
-			       ))); \
+			       _EZSHET_NAME_TYPES(type,__VA_ARGS__))); \
 			/* Send success to SHET. */ \
 			shet_return(shet, 0, NULL); \
 		} else { \
@@ -372,9 +363,97 @@ extern "C" {
 	bool _EZSHET_IS_REGISTERED_VAR(name) = false; \
 	/* Underlying variable for EZSHET_ERROR_COUNT */ \
 	unsigned int _EZSHET_ERROR_COUNT_VAR(name) = 0; \
-	/* Variable storing the path of the action */ \
+	/* Variable storing the path of the property */ \
 	const char _EZSHET_PATH_VAR(name)[] = path; \
-	/* The deferreds for the event and its registration. */ \
+	/* The deferreds for the property and its registration. */ \
+	shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
+	shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Variables-as-Property Creation
+////////////////////////////////////////////////////////////////////////////////
+
+#define _EZSHET_DECLARE_VAR_PROP(name) \
+	/* Underlying function for EZSHET_ADD */ \
+	void _EZSHET_ADD_FN(name)(shet_state_t *shet); \
+	/* Underlying function for EZSHET_REMOVE */ \
+	void _EZSHET_REMOVE_FN(name)(shet_state_t *shet); \
+	/* Underlying wrapper callback for the getting/setting property */ \
+	void _EZSHET_GET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data); \
+	void _EZSHET_SET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data); \
+	/* Underlying variable for EZSHET_IS_REGISTERED */ \
+	extern bool _EZSHET_IS_REGISTERED_VAR(name); \
+	/* Underlying variable for EZSHET_ERROR_COUNT */ \
+	extern unsigned int _EZSHET_ERROR_COUNT_VAR(name); \
+	/* Variable storing the path of the property */ \
+	extern const char _EZSHET_PATH_VAR(name)[]; \
+	/* The deferreds for the property and its registration. */ \
+	extern shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
+	extern shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
+
+#define _EZSHET_VAR_PROP(path, name, type, ...) \
+	_EZSHET_DECLARE_VAR_PROP(name); \
+	/* Underlying function for EZSHET_ADD */ \
+	void _EZSHET_ADD_FN(name)(shet_state_t *shet) { \
+		_EZSHET_IS_REGISTERED_VAR(name) = false;\
+		shet_make_prop(shet, \
+		               _EZSHET_PATH_VAR(name), \
+		               &_EZSHET_DEFERRED_VAR(name), \
+		               _EZSHET_GET_WRAPPER_FN(name), \
+		               _EZSHET_SET_WRAPPER_FN(name), \
+		               NULL, \
+		               &_EZSHET_DEFERRED_MAKE_VAR(name), \
+		               _ezshet_set_is_registered, \
+		               _ezshet_clear_is_registered, \
+		               &_EZSHET_IS_REGISTERED_VAR(name)); \
+	} \
+	/* Underlying function for EZSHET_REMOVE */ \
+	void _EZSHET_REMOVE_FN(name)(shet_state_t *shet) { \
+		_EZSHET_IS_REGISTERED_VAR(name) = false;\
+		shet_remove_prop(shet, \
+		                 _EZSHET_PATH_VAR(name), \
+		                 NULL, \
+		                 NULL, \
+		                 NULL, \
+		                 NULL); \
+	} \
+	/* Underlying wrapper callback for property getter */ \
+	void _EZSHET_GET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
+		/* Pack the property values. */ \
+		char packed_ret_val[ \
+			SHET_PACK_JSON_LENGTH(name, type, __VA_ARGS__) \
+		]; \
+		SHET_PACK_JSON(packed_ret_val, name, type, __VA_ARGS__); \
+		/* Send the response to SHET. */ \
+		shet_return(shet, 0, packed_ret_val); \
+	} \
+	/* Underlying wrapper callback for property setter */ \
+	void _EZSHET_SET_WRAPPER_FN(name)(shet_state_t *shet, shet_json_t json, void *data) {\
+		/* Create variables to unpack the JSON into. */ \
+		_EZSHET_DEFINE_VARS(_EZSHET_RENAME_TYPES(name, type, __VA_ARGS__)); \
+		/* Unpack the JSON. */ \
+		bool error = false; \
+		SHET_UNPACK_JSON(json, error=true;, \
+			_EZSHET_RENAME_TYPES(name, type, __VA_ARGS__)); \
+		/* Copy the unpacked variables into the property's variables. */ \
+		if (!error) { \
+			_EZSHET_COPY_UNPACKED_VALUES(name,type, __VA_ARGS__); \
+			shet_return(shet, 0, NULL); \
+		} else { \
+			static const char err_message[] = \
+				_EZSHET_ERROR_MSG(_EZSHET_JUST_TYPES(name, type, __VA_ARGS__)); \
+			_EZSHET_ERROR_COUNT_VAR(name)++; \
+			shet_return(shet, 1, err_message); \
+		} \
+	} \
+	/* Underlying variable for EZSHET_IS_REGISTERED */ \
+	bool _EZSHET_IS_REGISTERED_VAR(name) = false; \
+	/* Underlying variable for EZSHET_ERROR_COUNT */ \
+	unsigned int _EZSHET_ERROR_COUNT_VAR(name) = 0; \
+	/* Variable storing the path of the property */ \
+	const char _EZSHET_PATH_VAR(name)[] = path; \
+	/* The deferreds for the property and its registration. */ \
 	shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
 	shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
 
@@ -397,7 +476,7 @@ extern "C" {
 	extern unsigned int _EZSHET_ERROR_COUNT_VAR(name); \
 	/* Variable storing the path of the action */ \
 	extern const char _EZSHET_PATH_VAR(name)[]; \
-	/* The deferreds for the event and its registration. */ \
+	/* The deferreds for the property and its registration. */ \
 	extern shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
 	extern shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
 
@@ -490,7 +569,7 @@ extern "C" {
 	unsigned int _EZSHET_ERROR_COUNT_VAR(name) = 0; \
 	/* Variable storing the path of the action */ \
 	const char _EZSHET_PATH_VAR(name)[] = path; \
-	/* The deferreds for the event and its registration. */ \
+	/* The deferreds for the property and its registration. */ \
 	shet_deferred_t _EZSHET_DEFERRED_VAR(name); \
 	shet_deferred_t _EZSHET_DEFERRED_MAKE_VAR(name);
 
@@ -529,6 +608,28 @@ extern "C" {
 
 #define _EZSHET_NAME_RETURN_TYPES_OP(type, name) \
 	ret_##name, type
+
+
+/**
+ * Given an alternating list of names and types (e.g. SHET_INT), returns a new
+ * list with the names prefixed with and underscore.
+ */
+#define _EZSHET_RENAME_TYPES(...) \
+	MAP_PAIRS(_EZSHET_RENAME_TYPES_OP, COMMA, __VA_ARGS__)
+
+#define _EZSHET_RENAME_TYPES_OP(name, type) \
+	CAT(_,name), type
+
+
+/**
+ * Given an alternating list of names and types (e.g. SHET_INT), returns a new
+ * list with just the types
+ */
+#define _EZSHET_JUST_TYPES(...) \
+	MAP_PAIRS(_EZSHET_JUST_TYPES_OP, COMMA, __VA_ARGS__)
+
+#define _EZSHET_JUST_TYPES_OP(name, type) \
+	type
 
 
 /**
@@ -673,6 +774,17 @@ extern "C" {
     DEFER2(__EZSHET_JUST_RET_ARGS_INNER)()(__VA_ARGS__) \
   )
 #define __EZSHET_JUST_RET_ARGS_INNER() _EZSHET_JUST_RET_ARGS_INNER
+
+
+/**
+ * Given an alternating list of names and types (e.g. SHET_INT), copy from name
+ * to _name using SHET_UNPACKED_VALUE_COPY.
+ */
+#define _EZSHET_COPY_UNPACKED_VALUES(...) \
+	MAP_PAIRS(_EZSHET_COPY_UNPACKED_VALUES_OP, EMPTY, __VA_ARGS__)
+
+#define _EZSHET_COPY_UNPACKED_VALUES_OP(name, type) \
+	SHET_UNPACKED_VALUE_COPY(name, CAT(_,name), type);
 
 
 ////////////////////////////////////////////////////////////////////////////////
