@@ -72,6 +72,25 @@ extern "C" {
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
+ * Determine if a type has an C equivalent type. For example, "null" does not.
+ * Expands to 1 if the type has a C equivalent and 0 otherwise. If 0,
+ * SHET_GET_JSON_PARSED_TYPE should not be used.
+ *
+ * @param type The type (e.g. SHET_INT).
+ * @returns 1 if a corresponding C type exists, 0 otherwise.
+ */
+#define SHET_HAS_JSON_PARSED_TYPE(type) \
+	IS_PROBE(CAT(_SHET_HAS_JSON_PARSED_TYPE_,type)())
+
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_INT()    PROBE()
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_FLOAT()  PROBE()
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_BOOL()   PROBE()
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_STRING() PROBE()
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_ARRAY()  PROBE()
+#define _SHET_HAS_JSON_PARSED_TYPE_SHET_OBJECT() PROBE()
+
+
+/**
  * Get the C type produced when parsing a given JSON type using
  * SHET_PARSE_JSON_VALUE.
  *
@@ -183,44 +202,41 @@ extern "C" {
 
 
 ////////////////////////////////////////////////////////////////////////////////
-// JSON value parsing.
+// Tokenised JSON value parsing.
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
- * Determine if a type has a C equivalent type. For example, "null" does not.
- * Returns 1 if the type has a C equivalent and 0 otherwise. If 0 is returned,
- * SHET_GET_JSON_PARSED_TYPE should not be used.
+ * Generate a C expression which parses the given shet_json_t into a C type.
  *
- * @param json A shet_json_t referring to the tokenised JSON value to be parsed.
- * @param type One of the type macros above specifying the type of the value.
- * @returns An expression which evaluates to the value.
- */
-#define SHET_HAS_JSON_PARSED_TYPE(type) \
-	IS_PROBE(CAT(_SHET_HAS_JSON_PARSED_TYPE_,type)())
-
-#define _SHET_HAS_JSON_PARSED_TYPE_SHET_INT()    PROBE()
-#define _SHET_HAS_JSON_PARSED_TYPE_SHET_FLOAT()  PROBE()
-#define _SHET_HAS_JSON_PARSED_TYPE_SHET_BOOL()   PROBE()
-#define _SHET_HAS_JSON_PARSED_TYPE_SHET_STRING() PROBE()
-#define _SHET_HAS_JSON_PARSED_TYPE_SHET_ARRAY()  PROBE()
-#define _SHET_HAS_JSON_PARSED_TYPE_SHET_OBJECT() PROBE()
-
-/**
- * Generate a C expression which yields a C expression which parses the given
- * JSON value. The token should have previously been verified as having of the
- * correct type, e.g.  using SHET_JSON_IS_TYPE.
+ * The specified type must have a C type according to SHET_HAS_JSON_PARSED_TYPE and
+ * the shet_json_t should have been type-checked, e.g. with SHET_JSON_IS_TYPE.
  *
  * Limitations:
- * * This function clobbers the underlying JSON string though only in such a way
- *   that the strings representing compound objects is corrupted. The atomic
- *   JSON values and the tokens will not be harmed.
- * * The SHET_INT and SHET_FLOAT are not safely parsed when the JSON
- *   string only contains that primitive. If the primitive is a member of an
- *   array or object, however, the numeric types are safe.
+ *
+ * * This function clobbers the characters immediately surrounding the specified
+ *   token in the underlying JSON string.
+ * * If the value supplied is not part of a compound object (e.g. an array) this
+ *   macro will not generate safe code!
+ *
+ * Example usage:
+ *
+ *   shet_json_t my_json;
+ *
+ *   // ...
+ *   // Parse ["hello, world!", 1,2,3] using JSMN and set my_json to the string
+ *   // token.
+ *   // ...
+ *
+ *   if (SHET_JSON_IS_TYPE(my_json, SHET_STRING)) {
+ *     const char *str = SHET_PARSE_JSON_VALUE(my_json, SHET_STRING);
+ *     printf("my_json contained '%s'\n", str);
+ *   } else {
+ *     printf("Typecheck failed!\n");
+ *   }
  *
  * @param json A shet_json_t referring to the tokenised JSON value to be parsed.
- * @param type One of the type macros above specifying the type of the value.
- * @returns An expression which evaluates to the value.
+ * @param type The type of the value (e.g. SHET_INT).
+ * @returns A C expression which evaluates to the value of the JSON.
  */
 #define SHET_PARSE_JSON_VALUE(json, type) \
 	CAT(_SHET_PARSE_,type)((json))
