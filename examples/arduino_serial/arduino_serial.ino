@@ -21,28 +21,29 @@ shet_state shet;
 /**
  * A property which controls the onboard LED state.
  */
-void led_set_cb(shet_state_t *shet, char *line, jsmntok_t *tokens, void *user_data) {
-	if (tokens[0].type == JSMN_ARRAY && tokens[0].size == 1 && tokens[1].type == JSMN_PRIMITIVE) {
-		digitalWrite(led, line[tokens[1].start] == 't');
+void led_set_cb(shet_state_t *shet, shet_json_t json, void *user_data) {
+	if (json.token->type == JSMN_PRIMITIVE) {
+		digitalWrite(led, json.line[json.token->start] == 't');
 		shet_return(shet, 0, NULL);
 	} else {
-		shet_return(shet, 1, "\"Invalid Arguments!\"");
+		shet_return(shet, 1, "\"Expected a single boolean!\"");
 	}
 }
-void led_get_cb(shet_state_t *shet, char *line, jsmntok_t *tokens, void *user_data) {
+void led_get_cb(shet_state_t *shet, shet_json_t json, void *user_data) {
 	shet_return(shet, 0, digitalRead(led) ? "true" : "false");
 }
 shet_deferred_t led_deferred;
 
+
 /**
  * An action which performs summation.
  */
-void sum_cb(shet_state_t *shet, char *line, jsmntok_t *tokens, void *user_data) {
+void sum_cb(shet_state_t *shet, shet_json_t json, void *user_data) {
 	int sum = 0;
-	if (tokens[0].type == JSMN_ARRAY && tokens[0].size >= 1) {
-		for (int i = 0; i < tokens[0].size; i++) {
-			if (tokens[i+1].type == JSMN_PRIMITIVE) {
-				sum += atoi(line + tokens[i+1].start);
+	if (json.token[0].type == JSMN_ARRAY && json.token[0].size >= 1) {
+		for (int i = 0; i < json.token[0].size; i++) {
+			if (json.token[i+1].type == JSMN_PRIMITIVE) {
+				sum += atoi(json.line + json.token[i+1].start);
 			} else {
 				shet_return(shet, 1, "\"All arguments must be integers.\"");
 				return;
@@ -70,6 +71,8 @@ int timer = 0;
 void setup() {
 	Serial.begin(115200);
 	pinMode(led, OUTPUT);
+	
+	delay(1000);
 	
 	shet_state_init(&shet, "\"ARDUINO\"", transmit, NULL);
 	

@@ -1,5 +1,9 @@
 #include "ezshet.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void _ezshet_set_is_registered(shet_state_t *shet, shet_json_t json, void *_is_registered) {
 	USE(shet);
 	USE(json);
@@ -20,3 +24,7 @@ void _ezshet_inc_error_count(shet_state_t *shet, shet_json_t json, void *_error_
 	unsigned int *error_count = (unsigned int *)_error_count;
 	(*error_count)++;
 }
+
+#ifdef __cplusplus
+}
+#endif

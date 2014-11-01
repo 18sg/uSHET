@@ -55,7 +55,8 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 		int size = (**tokens_a).size;
 		(*tokens_a)++;
 		(*tokens_b)++;
-		for (int i = 0; i < size; i++)
+		int i;
+		for (i = 0; i < size; i++)
 			if (!cmp_json_tokens(json_a, json_b,
 			                     tokens_a, tokens_b,
 			                     differing_a, differing_b))
@@ -121,17 +122,20 @@ bool cmp_json_tokens(const char *json_a, const char *json_b,
 		fprintf(stderr, " > \"%.*s\"\n", (ta)->end-(ta)->start, a+(ta)->start);\
 		fprintf(stderr, " >  ");\
 		if (da.start-(ta)->start == db.start-(tb)->start) { \
-			for (int i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
+			int i; \
+			for (i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "|\n"); \
 		} else if (da.start-(ta)->start < db.start-(tb)->start) { \
-			for (int i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
+			int i; \
+			for (i = (ta)->start; i < da.start-(ta)->start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "^"); \
-			for (int i = da.start-(ta)->start; i < db.start-(tb)->start-1; i++) fprintf(stderr, "-"); \
+			for (i = da.start-(ta)->start; i < db.start-(tb)->start-1; i++) fprintf(stderr, "-"); \
 			fprintf(stderr, "v\n"); \
 		} else { \
-			for (int i = (tb)->start; i < db.start-(tb)->start; i++) fprintf(stderr, " "); \
+			int i; \
+			for (i = (tb)->start; i < db.start-(tb)->start; i++) fprintf(stderr, " "); \
 			fprintf(stderr, "v"); \
-			for (int i = db.start-(tb)->start; i < da.start-(ta)->start-1; i++) fprintf(stderr, "-"); \
+			for (i = db.start-(tb)->start; i < da.start-(ta)->start-1; i++) fprintf(stderr, "-"); \
 			fprintf(stderr, "^\n"); \
 		} \
 		fprintf(stderr, " > \"%.*s\"\n", (tb)->end-(tb)->start, b+(tb)->start);\
@@ -297,7 +301,8 @@ bool test_SHET_JSON_IS_TYPE(void) {
 	};
 	size_t num_strings = sizeof(strings)/sizeof(char *);
 	
-	for (size_t i = 0; i < num_strings; i++) {
+	size_t i;
+	for (i = 0; i < num_strings; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -359,7 +364,8 @@ bool test_SHET_PARSE_JSON_VALUE_INT(void) {
 	int      c_ints[] = {  0,     123,     -1,     +1 };
 	size_t num = sizeof(c_ints)/sizeof(int);
 	
-	for (size_t i = 0; i < num; i++) {
+	size_t i;
+	for (i = 0; i < num; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -386,7 +392,8 @@ bool test_SHET_PARSE_JSON_VALUE_FLOAT(void) {
 	double   c_floats[] = { 0.0,    1.5,     -1.5,     +1.5  ,   1e7};
 	size_t num = sizeof(c_floats)/sizeof(double);
 	
-	for (size_t i = 0; i < num; i++) {
+	size_t i;
+	for (i = 0; i < num; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -413,7 +420,8 @@ bool test_SHET_PARSE_JSON_VALUE_BOOL(void) {
 	bool     c_bools[] = {  true,     false};
 	size_t num = sizeof(c_bools)/sizeof(bool);
 	
-	for (size_t i = 0; i < num; i++) {
+	size_t i;
+	for (i = 0; i < num; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -442,7 +450,8 @@ bool test_SHET_PARSE_JSON_VALUE_STRING(void) {
 	char    *c_strings[] = {"", "I am a magical string!"};
 	size_t num = sizeof(c_strings)/sizeof(char *);
 	
-	for (size_t i = 0; i < num; i++) {
+	size_t i;
+	for (i = 0; i < num; i++) {
 		jsmn_parser p;
 		jsmn_init(&p);
 		jsmntok_t tokens[4];
@@ -923,7 +932,8 @@ bool test_shet_register(void) {
 	shet_state_t state;
 	shet_state_init(&state, NULL, transmit, NULL);
 	TASSERT_INT_EQUAL(register_count, 1);
-	for (int i = 0; i < num; i++) {
+	int i;
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 0);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
 	}
@@ -933,7 +943,7 @@ bool test_shet_register(void) {
 	// Test that re-registering an empty system does no damage
 	shet_reregister(&state);
 	TASSERT_INT_EQUAL(register_count, 2);
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 0);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
 	}
@@ -941,7 +951,7 @@ bool test_shet_register(void) {
 	TASSERT_INT_EQUAL(bad_tx_count, 0);
 	
 	// Test registering all the test paths
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		switch (types[i]) {
 			case TYPE_EVENT:
 				shet_make_event(&state, paths[i], &(events[i]),
@@ -968,7 +978,7 @@ bool test_shet_register(void) {
 		}
 	}
 	TASSERT_INT_EQUAL(register_count, 2);
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 1);
 		TASSERT_INT_EQUAL(cb_counts[i], 0);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
@@ -977,19 +987,19 @@ bool test_shet_register(void) {
 	TASSERT_INT_EQUAL(bad_tx_count, 0);
 	
 	// Send callbacks
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		char msg[100];
 		sprintf(msg, "[%d,\"return\",0,null]", reg_return_ids[i]);
 		TASSERT(shet_process_line(&state, msg, strlen(msg)) == SHET_PROC_OK);
 	}
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(cb_counts[i], 1);
 	}
 	
 	// Test re-registering makes everything come back
 	shet_reregister(&state);
 	TASSERT_INT_EQUAL(register_count, 3);
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 2);
 		TASSERT_INT_EQUAL(cb_counts[i], 1);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
@@ -998,17 +1008,17 @@ bool test_shet_register(void) {
 	TASSERT_INT_EQUAL(bad_tx_count, 0);
 	
 	// And that all the callbacks work again
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		char msg[100];
 		sprintf(msg, "[%d,\"return\",0,null]", reg_return_ids[i]);
 		TASSERT(shet_process_line(&state, msg, strlen(msg)) == SHET_PROC_OK);
 	}
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(cb_counts[i], 2);
 	}
 	
 	// Remove everything and make sture everything returns to normal
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		switch (types[i]) {
 			case TYPE_EVENT:
 				shet_remove_event(&state, paths[i],
@@ -1032,7 +1042,7 @@ bool test_shet_register(void) {
 		}
 	}
 	TASSERT_INT_EQUAL(register_count, 3);
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 3);
 		TASSERT_INT_EQUAL(cb_counts[i], 2);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
@@ -1043,7 +1053,7 @@ bool test_shet_register(void) {
 	// Test re-registering doesn't re-introduce anything
 	shet_reregister(&state);
 	TASSERT_INT_EQUAL(register_count, 4);
-	for (int i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 3);
 		TASSERT_INT_EQUAL(cb_counts[i], 2);
 		TASSERT_INT_EQUAL(wrong_reg_counts[i], 0);
@@ -2857,7 +2867,8 @@ int main(int argc, char *argv[]) {
 	size_t num_tests = sizeof(tests)/sizeof(tests[0]);
 	
 	size_t num_passes = 0;
-	for (size_t i = 0; i < num_tests; i++) {
+	size_t i;
+	for (i = 0; i < num_tests; i++) {
 		bool result = tests[i]();
 		if (result)
 			fprintf(stderr, ".");

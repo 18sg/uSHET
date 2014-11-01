@@ -46,7 +46,7 @@ Test Suite
 
 A test suite is included. It can be compiled and run as follows:
 
-	gcc -Wall -Wextra -Werror --std=c99 test.c -o test && ./test
+	gcc -Wall -Wextra -Werror test.c -o test && ./test
 
 Note that the testbench actually `#includes` the library sources in order to
 test a number of internal functions.

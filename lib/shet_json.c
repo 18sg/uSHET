@@ -1,6 +1,10 @@
 #include "shet.h"
 #include "shet_json.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 shet_json_t shet_next_token(shet_json_t json) {
 	shet_json_t next = json;
 	
@@ -11,11 +15,13 @@ shet_json_t shet_next_token(shet_json_t json) {
 			return next;
 		
 		case JSMN_ARRAY:
-		case JSMN_OBJECT:
+		case JSMN_OBJECT: {
 			next.token++;
-			for (int i = 0; i < json.token->size; i++)
+			int i;
+			for (i = 0; i < json.token->size; i++)
 				next = shet_next_token(next);
 			return next;
+		}
 		
 		default:
 			return json;
@@ -37,3 +43,7 @@ unsigned int shet_count_tokens(shet_json_t json) {
 			return 0;
 	}
 }
+
+#ifdef __cplusplus
+}
+#endif
