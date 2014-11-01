@@ -125,14 +125,16 @@ extern "C" {
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
- * Check that the type of a shet_json_t matches a given type..
+ * Check that the type of a shet_json_t matches a given type. Note that this
+ * accepts only a single type (e.g. it cannot be used to check the contents of
+ * a SHET_ARRAY_BEGIN/SHET_ARRAY_END pair).
  *
  * Limitation: SHET_INT and SHET_FLOAT are not checked for the absence or
  * presence of a decimal point. It this matters, the user should check for
  * themselves!
  *
  * @param json A shet_json_t referring to the tokenised JSON value to test.
- * @param type One of the type macros above specifying the type to check for.
+ * @param type The type to check for (e.g. SHET_INT).
  * @returns A boolean expression which evaluates to true when the type is
  *          correct, false otherwise.
  */
