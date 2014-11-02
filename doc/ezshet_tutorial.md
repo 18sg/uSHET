@@ -227,6 +227,15 @@ As always, the action must be registered in the setup code like so:
 If you want to watch an event rather than create one, see Appendix D.
 
 
+Going Further
+-------------
+
+This tutorial has given only a brief introduction to a subset of EZSHET's
+features which gives a feel for the style of the API. The following appendices
+cover the bulk of the remaining features of EZSHET API. Further details can, of
+course, be found in the EZSHET header file `ezshet.h`.
+
+
 Appendix A: Supported Types
 ---------------------------
 
