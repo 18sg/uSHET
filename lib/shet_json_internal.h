@@ -223,8 +223,8 @@ static inline double _shet_clamp_non_finite(double var) {
 // Check that the current _json has not gone beyond the range of the current
 // _parent or that it is of the wrong type.
 #define _SHET_UNPACK_JSON_CHECK(type) \
-	if ((!SHET_JSON_IS_TYPE(_json, type)) || \
-	    (_parent.token != NULL && _num_unpacked >= _parent.token->size)) { \
+	if ((_parent.token != NULL && _num_unpacked >= _parent.token->size) || \
+	    (!SHET_JSON_IS_TYPE(_json, type))) { \
 		_error = true; \
 		break; \
 	}
