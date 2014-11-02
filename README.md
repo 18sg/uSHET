@@ -34,11 +34,29 @@ uSHET supports the following key features:
 Documentation
 -------------
 
-The basic SHET library contains fairly extensive API documentation within its
-header file, `shet.h`.
+Beginner's tutorials for the EZSHET and uSHET libraries are included in `doc`
+and these are the recommended starting point for new users to uSHET.
 
-The EZSHET library contains fairly extensive API documentation within its header
-file, `ezshet.h`.
+The uSHET and EZSHET libraries contain fairly extensive API documentation within
+their header files, `shet.h` and `ezshet.h`.
+
+
+Teaser
+------
+
+The following snippet (which uses EZSHET) should give you a feel for the
+ease-of-use of the library.
+
+	void set_led(shet_state_t *shet, bool state) {
+		digitalWrite(led_pin, state);
+	}
+	bool get_led(shet_state_t *shet) {
+		return digitalRead(led_pin);
+	}
+	EZSHET_PROP("/arduino/led", led, SHET_BOOL);
+
+This code creates a new boolean property in SHET at the path "/arduino/led" that
+controls the state of an LED in an Arduino project.
 
 
 Test Suite
