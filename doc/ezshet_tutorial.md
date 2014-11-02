@@ -535,129 +535,131 @@ as it was in the commit `d3eca4dbf94d507a2ad62db3d3a45b05c8ffed23`. The
 type-checking code is written in a slightly unusual style which is easier to
 generate than a more conventional style.
 
-	void _ezshet_wrapper_add(shet_state_t *shet, shet_json_t json, void *data) {
-		// These variables will hold the two parsed integer arguments (if the types
-		// check out OK!)
-		int II;
-		int III;
+```c
+void _ezshet_wrapper_add(shet_state_t *shet, shet_json_t json, void *data) {
+	// These variables will hold the two parsed integer arguments (if the types
+	// check out OK!)
+	int II;
+	int III;
+	
+	// Has there been a type error?
+	bool error = false;
+	
+	{
+		// Make a copy of the shet_json_t which we can iterate with
+		shet_json_t _json = json;
 		
-		// Has there been a type error?
-		bool error = false;
+		// Record the parent shet_json_t (used when unpacking arrays).  We're at
+		// the root so this is NULL.
+		shet_json_t _parent;
+		_parent.token = NULL;
 		
-		{
-			// Make a copy of the shet_json_t which we can iterate with
-			shet_json_t _json = json;
+		// Count the number of values unpacked (more obviously useful when
+		// unpacking arrays)
+		int _num_unpacked = 0;
+		
+		// Check the first value we've received. (We're using the "do {} while(0)"
+		// idiom to allow the block to exit early.)
+		do {
+			// Check that we've received array (uSHET action callbacks receive their
+			// arguments in an array).
+			if ( (_parent.token != NULL && _num_unpacked >= _parent.token->size) ||
+			     (!(_json.token->type == JSMN_ARRAY))) {
+				error = true;
+				break;
+			}
 			
-			// Record the parent shet_json_t (used when unpacking arrays).  We're at
-			// the root so this is NULL.
-			shet_json_t _parent;
-			_parent.token = NULL;
-			
-			// Count the number of values unpacked (more obviously useful when
-			// unpacking arrays)
-			int _num_unpacked = 0;
-			
-			// Check the first value we've received. (We're using the "do {} while(0)"
-			// idiom to allow the block to exit early.)
-			do {
-				// Check that we've received array (uSHET action callbacks receive their
-				// arguments in an array).
-				if ( (_parent.token != NULL && _num_unpacked >= _parent.token->size) ||
-				     (!(_json.token->type == JSMN_ARRAY))) {
+			// Unpack the values in the array
+			{
+				// A counter which ensures we don't unpack more values than the array
+				// contains.
+				int _num_unpacked = 0;
+				
+				// Remember the parent token (i.e. the array's head)
+				shet_json_t _parent = _json;
+				
+				// Advance to the token of the first element of the array
+				_json.token++;
+				
+				// Check that the array has at least this many values and that the
+				// current value is an integer.
+				if ( ( _parent.token != NULL &&
+				       _num_unpacked >= _parent.token->size) ||
+				     (!( _json.token->type == JSMN_PRIMITIVE &&
+				         ( _json.line[_json.token->start] == '+' ||
+				           _json.line[_json.token->start] == '-' ||
+				           ( _json.line[_json.token->start] >= '0' &&
+				             _json.line[_json.token->start] <= '9'))))) {
 					error = true;
 					break;
 				}
+				// Convert the JSON integer to a C integer
+				II = atoi(_json.line + _json.token->start);
 				
-				// Unpack the values in the array
-				{
-					// A counter which ensures we don't unpack more values than the array
-					// contains.
-					int _num_unpacked = 0;
-					
-					// Remember the parent token (i.e. the array's head)
-					shet_json_t _parent = _json;
-					
-					// Advance to the token of the first element of the array
-					_json.token++;
-					
-					// Check that the array has at least this many values and that the
-					// current value is an integer.
-					if ( ( _parent.token != NULL &&
-					       _num_unpacked >= _parent.token->size) ||
-					     (!( _json.token->type == JSMN_PRIMITIVE &&
-					         ( _json.line[_json.token->start] == '+' ||
-					           _json.line[_json.token->start] == '-' ||
-					           ( _json.line[_json.token->start] >= '0' &&
-					             _json.line[_json.token->start] <= '9'))))) {
-						error = true;
-						break;
-					}
-					// Convert the JSON integer to a C integer
-					II = atoi(_json.line + _json.token->start);
-					
-					// Advance to the next element in the array
-					_num_unpacked++;
-					_json.token++;
-					
-					// Check that the next element exists and is an integer too.
-					if ( ( _parent.token != NULL &&
-					       _num_unpacked >= _parent.token->size) ||
-					     (!( _json.token->type == JSMN_PRIMITIVE &&
-					         ( _json.line[_json.token->start] == '+' ||
-					           _json.line[_json.token->start] == '-' ||
-					           ( _json.line[_json.token->start] >= '0' &&
-					             _json.line[_json.token->start] <= '9'))))) {
-						error = true;
-						break;
-					}
-					// Convert from JSON to a C integer
-					III = atoi(_json.line + _json.token->start);
-					
-					// Advance to the next element in the array (though this is never
-					// accessed)
-					_num_unpacked++;
-					_json.token++;
-					
-					// Check that we unpacked exactly the number of entries that exist in
-					// the array (i.e. that there wasn't a 3rd or 4th entry).
-					if (_num_unpacked != _parent.token->size) {
-						error = true;
-						break;
-					}
-				}
-				
-				// Count that we have unpacked the array (note that this is not the same
-				// _num_unpacked as above because that was in a different scope).
+				// Advance to the next element in the array
 				_num_unpacked++;
-			} while (0);
-			
-			// Check that the current token pointer (_json) is pointing immediately
-			// after the supplied token (i.e. sanity-check we've not missed any tokens
-			// belonging to the supplied value). Also checks that we've only processed
-			// exactly one token (not counting any nested tokens).
-			if (_json.token != shet_next_token(json).token || _num_unpacked != 1) {
-				error = true;
+				_json.token++;
+				
+				// Check that the next element exists and is an integer too.
+				if ( ( _parent.token != NULL &&
+				       _num_unpacked >= _parent.token->size) ||
+				     (!( _json.token->type == JSMN_PRIMITIVE &&
+				         ( _json.line[_json.token->start] == '+' ||
+				           _json.line[_json.token->start] == '-' ||
+				           ( _json.line[_json.token->start] >= '0' &&
+				             _json.line[_json.token->start] <= '9'))))) {
+					error = true;
+					break;
+				}
+				// Convert from JSON to a C integer
+				III = atoi(_json.line + _json.token->start);
+				
+				// Advance to the next element in the array (though this is never
+				// accessed)
+				_num_unpacked++;
+				_json.token++;
+				
+				// Check that we unpacked exactly the number of entries that exist in
+				// the array (i.e. that there wasn't a 3rd or 4th entry).
+				if (_num_unpacked != _parent.token->size) {
+					error = true;
+					break;
+				}
 			}
-		}
+			
+			// Count that we have unpacked the array (note that this is not the same
+			// _num_unpacked as above because that was in a different scope).
+			_num_unpacked++;
+		} while (0);
 		
-		if (!error) {
-			// If everything worked, call the callback function
-			int ret_val = add(shet, II, III);
-			
-			// Allocate a string long enough to store a printed integer (and a null
-			// terminator) and print the JSON representation of the returned integer
-			char packed_ret_val[((sizeof(int) <= 2) ? 6 : (sizeof(int) <= 4) ? 11 : 20) + 1];
-			sprintf(packed_ret_val, "%d", ret_val);
-			
-			// Return success and the returned integer
-			shet_return(shet, 0, packed_ret_val);
-		} else {
-			// If the types weren't correct, return failiure with a helpful error
-			// message.
-			static const char err_message[] = "\"Expected int, int\"";
-			shet_return(shet, 1, err_message);
-			
-			// Increment the error count
-			EZSHET_ERROR_COUNT(add)++;
+		// Check that the current token pointer (_json) is pointing immediately
+		// after the supplied token (i.e. sanity-check we've not missed any tokens
+		// belonging to the supplied value). Also checks that we've only processed
+		// exactly one token (not counting any nested tokens).
+		if (_json.token != shet_next_token(json).token || _num_unpacked != 1) {
+			error = true;
 		}
 	}
+	
+	if (!error) {
+		// If everything worked, call the callback function
+		int ret_val = add(shet, II, III);
+		
+		// Allocate a string long enough to store a printed integer (and a null
+		// terminator) and print the JSON representation of the returned integer
+		char packed_ret_val[((sizeof(int) <= 2) ? 6 : (sizeof(int) <= 4) ? 11 : 20) + 1];
+		sprintf(packed_ret_val, "%d", ret_val);
+		
+		// Return success and the returned integer
+		shet_return(shet, 0, packed_ret_val);
+	} else {
+		// If the types weren't correct, return failiure with a helpful error
+		// message.
+		static const char err_message[] = "\"Expected int, int\"";
+		shet_return(shet, 1, err_message);
+		
+		// Increment the error count
+		EZSHET_ERROR_COUNT(add)++;
+	}
+}
+```
