@@ -20,7 +20,7 @@ very simple SHET client with the following SHET nodes:
 * `/arduino/timer`: An *event* which occurs every second and gives the
   time since the Arduino was reset as its value.
 
-This sketch communicates with the SHET servier over the hardware serial port.
+This sketch communicates with the SHET server over the hardware serial port.
 Since the SHET server only listens for network connections; you must use
 something like the command below to forward the data to/from the serial port
 to/from SHET:

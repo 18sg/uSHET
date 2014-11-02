@@ -4,6 +4,9 @@
  * shet_deferred_t objects, recording success of registration and, most
  * significantly, unpacking/packing JSON into/from native C types is automated.
  *
+ * New users are referred to the EZSHET tutorial included in the `doc` directory
+ * for an introduction to using this library.
+ *
  * The implementation of this library should be regarded as a little bit magic
  * due to its heavy use of advanced pre-processor macros. An unfortunate
  * side-effect of this is that simple (even syntactic) errors can result in
