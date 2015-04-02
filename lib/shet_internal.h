@@ -100,8 +100,12 @@ struct shet_state {
 	void (*transmit)(const char *data, void *user_data);
 	void *transmit_user_data;
 	
+	// Callback to call on on unhandled errors
 	shet_callback_t error_callback;
 	void *error_callback_data;
+	
+	// Internally used callback fired when the "register" command returns.
+	shet_deferred_t reregister_deferred;
 };
 
 

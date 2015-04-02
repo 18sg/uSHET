@@ -413,6 +413,93 @@ static void send_command(shet_state_t *state,
 	}
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+// Internal callback for re-register 
+////////////////////////////////////////////////////////////////////////////////
+
+void reregister_complete_cb(shet_state_t *state,
+                            shet_json_t json,
+                            void *user_data) {
+	// Callback when shet_reregister command completes: re-creates all nodes
+	
+	USE(json);
+	USE(user_data);
+	
+	// Re-send all registration commands for watches, properties and actions
+	shet_deferred_t *iter;
+	for (iter = state->callbacks; iter != NULL; iter = iter->next) {
+		switch(iter->type) {
+			case SHET_EVENT_CB: {
+				// Find the original watch callback deferred
+				shet_deferred_t *watch_deferred = iter->data.event_cb.watch_deferred;
+				if (watch_deferred != NULL && watch_deferred->type != SHET_RETURN_CB)
+					watch_deferred = NULL;
+				
+				// Re-register the watch
+				send_command(state, "watch", iter->data.event_cb.event_name, NULL,
+				             watch_deferred,
+				             watch_deferred ? watch_deferred->data.return_cb.success_callback : NULL,
+				             watch_deferred ? watch_deferred->data.return_cb.error_callback : NULL,
+				             watch_deferred ? watch_deferred->data.return_cb.user_data : NULL);
+				break;
+			}
+			
+			case SHET_ACTION_CB: {
+				// Find the original make action callback deferred
+				shet_deferred_t *mkaction_deferred = iter->data.action_cb.mkaction_deferred;
+				if (mkaction_deferred != NULL && mkaction_deferred->type != SHET_RETURN_CB)
+					mkaction_deferred = NULL;
+				
+				// Re-create the action
+				send_command(state, "mkaction", iter->data.action_cb.action_name, NULL,
+				             mkaction_deferred,
+				             mkaction_deferred ? mkaction_deferred->data.return_cb.success_callback : NULL,
+				             mkaction_deferred ? mkaction_deferred->data.return_cb.error_callback : NULL,
+				             mkaction_deferred ? mkaction_deferred->data.return_cb.user_data : NULL);
+				break;
+			}
+			
+			case SHET_PROP_CB: {
+				// Find the original make property callback deferred
+				shet_deferred_t *mkprop_deferred = iter->data.prop_cb.mkprop_deferred;
+				if (mkprop_deferred != NULL && mkprop_deferred->type != SHET_RETURN_CB)
+					mkprop_deferred = NULL;
+				
+				// Re-create the property
+				send_command(state, "mkprop", iter->data.prop_cb.prop_name, NULL,
+				             mkprop_deferred,
+				             mkprop_deferred ? mkprop_deferred->data.return_cb.success_callback : NULL,
+				             mkprop_deferred ? mkprop_deferred->data.return_cb.error_callback : NULL,
+				             mkprop_deferred ? mkprop_deferred->data.return_cb.user_data : NULL);
+				break;
+			}
+			
+			// Should not occur
+			default:
+				break;
+		}
+	}
+	
+	// Re-register any events
+	shet_event_t *ev_iter;
+	for (ev_iter = state->registered_events; ev_iter != NULL; ev_iter = ev_iter->next) {
+			// Find the original make event callback deferred
+			shet_deferred_t *mkevent_deferred = ev_iter->mkevent_deferred;
+			if (mkevent_deferred != NULL && mkevent_deferred->type != SHET_RETURN_CB)
+				mkevent_deferred = NULL;
+			
+			// Re-register the event
+			send_command(state, "mkevent", ev_iter->event_name, NULL,
+			             mkevent_deferred,
+			             mkevent_deferred ? mkevent_deferred->data.return_cb.success_callback : NULL,
+			             mkevent_deferred ? mkevent_deferred->data.return_cb.error_callback : NULL,
+			             mkevent_deferred ? mkevent_deferred->data.return_cb.user_data : NULL);
+	}
+}
+
+
+
 ////////////////////////////////////////////////////////////////////////////////
 // General Library Functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -491,79 +578,11 @@ shet_processing_error_t shet_process_line(shet_state_t *state, char *line, size_
 void shet_reregister(shet_state_t *state) {
 	// Cause the server to drop all old objects from this device/application
 	send_command(state, "register", NULL, state->connection_name,
-	             NULL, NULL, NULL, NULL);
-	// Re-send all registration commands for watches, properties and actions
-	shet_deferred_t *iter;
-	for (iter = state->callbacks; iter != NULL; iter = iter->next) {
-		switch(iter->type) {
-			case SHET_EVENT_CB: {
-				// Find the original watch callback deferred
-				shet_deferred_t *watch_deferred = iter->data.event_cb.watch_deferred;
-				if (watch_deferred != NULL && watch_deferred->type != SHET_RETURN_CB)
-					watch_deferred = NULL;
-				
-				// Re-register the watch
-				send_command(state, "watch", iter->data.event_cb.event_name, NULL,
-				             watch_deferred,
-				             watch_deferred ? watch_deferred->data.return_cb.success_callback : NULL,
-				             watch_deferred ? watch_deferred->data.return_cb.error_callback : NULL,
-				             watch_deferred ? watch_deferred->data.return_cb.user_data : NULL);
-				break;
-			}
-			
-			case SHET_ACTION_CB: {
-				// Find the original make action callback deferred
-				shet_deferred_t *mkaction_deferred = iter->data.action_cb.mkaction_deferred;
-				if (mkaction_deferred != NULL && mkaction_deferred->type != SHET_RETURN_CB)
-					mkaction_deferred = NULL;
-				
-				// Re-create the action
-				send_command(state, "mkaction", iter->data.action_cb.action_name, NULL,
-				             mkaction_deferred,
-				             mkaction_deferred ? mkaction_deferred->data.return_cb.success_callback : NULL,
-				             mkaction_deferred ? mkaction_deferred->data.return_cb.error_callback : NULL,
-				             mkaction_deferred ? mkaction_deferred->data.return_cb.user_data : NULL);
-				break;
-			}
-			
-			case SHET_PROP_CB: {
-				// Find the original make property callback deferred
-				shet_deferred_t *mkprop_deferred = iter->data.prop_cb.mkprop_deferred;
-				if (mkprop_deferred != NULL && mkprop_deferred->type != SHET_RETURN_CB)
-					mkprop_deferred = NULL;
-				
-				// Re-create the property
-				send_command(state, "mkprop", iter->data.prop_cb.prop_name, NULL,
-				             mkprop_deferred,
-				             mkprop_deferred ? mkprop_deferred->data.return_cb.success_callback : NULL,
-				             mkprop_deferred ? mkprop_deferred->data.return_cb.error_callback : NULL,
-				             mkprop_deferred ? mkprop_deferred->data.return_cb.user_data : NULL);
-				break;
-			}
-			
-			// Should not occur
-			default:
-				break;
-		}
-	}
-	
-	// Re-register any events
-	shet_event_t *ev_iter;
-	for (ev_iter = state->registered_events; ev_iter != NULL; ev_iter = ev_iter->next) {
-			// Find the original make event callback deferred
-			shet_deferred_t *mkevent_deferred = ev_iter->mkevent_deferred;
-			if (mkevent_deferred != NULL && mkevent_deferred->type != SHET_RETURN_CB)
-				mkevent_deferred = NULL;
-			
-			// Re-register the event
-			send_command(state, "mkevent", ev_iter->event_name, NULL,
-			             mkevent_deferred,
-			             mkevent_deferred ? mkevent_deferred->data.return_cb.success_callback : NULL,
-			             mkevent_deferred ? mkevent_deferred->data.return_cb.error_callback : NULL,
-			             mkevent_deferred ? mkevent_deferred->data.return_cb.user_data : NULL);
-	}
+	             &(state->reregister_deferred),
+	             reregister_complete_cb,
+	             NULL,
+	             NULL);
 }
-
 
 void shet_cancel_deferred(shet_state_t *state, shet_deferred_t *deferred) {
 	remove_deferred(state, deferred);

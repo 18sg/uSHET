@@ -212,6 +212,14 @@ static void transmit_cb(const char *data, void *user_data) {
 } while (0)
 
 
+// Respond to a register command whose ID is supplied as an argument
+#define RESPOND_TO_REGISTER(state, id) do { \
+	char str[100]; \
+	sprintf(str, "[%d,\"return\",0,null]", (id)); \
+	TASSERT_INT_EQUAL(shet_process_line((state), str, strlen(str)), SHET_PROC_OK); \
+	} while (0)
+
+
 // A generic callback which simply places the callback arguments into a
 // callback_result_t structure pointed to by the user variable.
 typedef struct {
@@ -482,6 +490,7 @@ bool test_send_command(void) {
 	shet_state_t state;
 	RESET_TRANSMIT_CB();
 	shet_state_init(&state, NULL, transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Test sending with just a command
 	send_command(&state, "test1", NULL, NULL,
@@ -536,6 +545,7 @@ bool test_deferred_utilities(void) {
 	shet_state_t state;
 	RESET_TRANSMIT_CB();
 	shet_state_init(&state, NULL, transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Make sure that the deferred list is initially empty
 	TASSERT(state.callbacks == NULL);
@@ -712,6 +722,7 @@ bool test_shet_state_init(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, (void *)test_shet_state_init);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Make sure a registration command is sent and that the transmit callback
 	// gets the right data
@@ -727,6 +738,7 @@ bool test_shet_process_line_errors(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, (void *)test_shet_state_init);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Send an empty string
 	TASSERT(shet_process_line(&state, "", 0) == SHET_PROC_INVALID_JSON);
@@ -796,6 +808,7 @@ bool test_shet_set_error_callback(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Make sure nothing happens when an unknown (non-successful) return arrives
 	// without an error callback setup
@@ -863,6 +876,9 @@ bool test_shet_register(void) {
 	// Number of "register" commands received
 	int register_count = 0;
 	
+	// Last ID sent with a register command
+	int register_id = -1;
+	
 	// Unexpected commands received to transmit
 	int bad_tx_count = 0;
 	
@@ -890,6 +906,7 @@ bool test_shet_register(void) {
 		// Is this a register?
 		if (strncmp("register", data + tokens[2].start, tokens[2].end - tokens[2].start) == 0) {
 			register_count++;
+			register_id = atoi(data + tokens[1].start);
 		} else {
 			// Check through the paths for a match
 			int i;
@@ -932,6 +949,7 @@ bool test_shet_register(void) {
 	shet_state_t state;
 	shet_state_init(&state, NULL, transmit, NULL);
 	TASSERT_INT_EQUAL(register_count, 1);
+	RESPOND_TO_REGISTER(&state, register_id);
 	int i;
 	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 0);
@@ -942,6 +960,7 @@ bool test_shet_register(void) {
 	
 	// Test that re-registering an empty system does no damage
 	shet_reregister(&state);
+	RESPOND_TO_REGISTER(&state, register_id);
 	TASSERT_INT_EQUAL(register_count, 2);
 	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 0);
@@ -998,6 +1017,7 @@ bool test_shet_register(void) {
 	
 	// Test re-registering makes everything come back
 	shet_reregister(&state);
+	RESPOND_TO_REGISTER(&state, register_id);
 	TASSERT_INT_EQUAL(register_count, 3);
 	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 2);
@@ -1052,6 +1072,7 @@ bool test_shet_register(void) {
 	
 	// Test re-registering doesn't re-introduce anything
 	shet_reregister(&state);
+	RESPOND_TO_REGISTER(&state, register_id);
 	TASSERT_INT_EQUAL(register_count, 4);
 	for (i = 0; i < num; i++) {
 		TASSERT_INT_EQUAL(reg_counts[i], 3);
@@ -1069,6 +1090,7 @@ bool test_shet_cancel_deferred_and_shet_ping(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Send a ping event
 	shet_deferred_t deferred;
@@ -1109,6 +1131,7 @@ bool test_return(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// A function which immediately returns nothing
 	void return_null(shet_state_t *state, shet_json_t json, void *user_data) {
@@ -1191,6 +1214,7 @@ bool test_shet_make_action(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	shet_deferred_t deferred1;
 	shet_deferred_t deferred2;
@@ -1287,6 +1311,7 @@ bool test_shet_call_action(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Test a call with no argument
 	shet_deferred_t deferred;
@@ -1336,6 +1361,7 @@ bool test_shet_make_prop(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	shet_deferred_t deferred1;
 	shet_deferred_t deferred2;
@@ -1421,6 +1447,7 @@ bool test_shet_set_prop_and_shet_get_prop(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	shet_deferred_t deferred;
 	callback_result_t result;
@@ -1472,6 +1499,7 @@ bool test_shet_make_event(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	shet_event_t event;
 	
@@ -1508,6 +1536,7 @@ bool test_shet_watch_event(void) {
 	RESET_TRANSMIT_CB();
 	shet_state_t state;
 	shet_state_init(&state, "\"tester\"", transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	shet_deferred_t deferred1;
 	shet_deferred_t deferred2;
@@ -1991,6 +2020,7 @@ bool test_EZSHET_WATCH(void) {
 	shet_state_t state;
 	RESET_TRANSMIT_CB();
 	shet_state_init(&state, NULL, transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Test that registration works
 	TASSERT(!EZSHET_IS_REGISTERED(ez_watch));
@@ -2126,6 +2156,7 @@ bool test_EZSHET_EVENT(void) {
 	shet_state_t state;
 	RESET_TRANSMIT_CB();
 	shet_state_init(&state, NULL, transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Test that events can't be sent yet
 	TASSERT_INT_EQUAL(EZSHET_ERROR_COUNT(ez_event), 0);
@@ -2316,6 +2347,7 @@ bool test_EZSHET_PROP(void) {
 	shet_state_t state;
 	RESET_TRANSMIT_CB();
 	shet_state_init(&state, NULL, transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Test that registration works
 	TASSERT(!EZSHET_IS_REGISTERED(ez_prop));
@@ -2493,6 +2525,7 @@ bool test_EZSHET_VAR_PROP(void) {
 	shet_state_t state;
 	RESET_TRANSMIT_CB();
 	shet_state_init(&state, NULL, transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Test that registration works
 	TASSERT(!EZSHET_IS_REGISTERED(ez_var_prop));
@@ -2702,6 +2735,7 @@ bool test_EZSHET_ACTION(void) {
 	shet_state_t state;
 	RESET_TRANSMIT_CB();
 	shet_state_init(&state, NULL, transmit_cb, NULL);
+	RESPOND_TO_REGISTER(&state, 0);
 	
 	// Test that registration works
 	TASSERT(!EZSHET_IS_REGISTERED(ez_action));
