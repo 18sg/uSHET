@@ -257,8 +257,8 @@
  * 4. BOOL is used to force non-zero results into 1 giving the clean 0 or 1
  *    output required.
  */
-#define HAS_ARGS(...) BOOL(FIRST(_END_OF_ARGUMENTS_ __VA_ARGS__)())
-#define _END_OF_ARGUMENTS_() 0
+#define HAS_ARGS(...) BOOL(CAT(FIRST(_END_OF_ARGUMENTS __VA_ARGS__),_FN)())
+#define _END_OF_ARGUMENTS_FN() 0
 
 
 /**
