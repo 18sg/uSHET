@@ -251,14 +251,18 @@
  *
  * 1. _END_OF_ARGUMENTS_ is concatenated with the first argument.
  * 2. If the first argument is not present then only "_END_OF_ARGUMENTS_" will
- *    remain, otherwise "_END_OF_ARGUMENTS something_here" will remain.
- * 3. In the former case, the _END_OF_ARGUMENTS_() macro expands to a
- *    0 when it is expanded. In the latter, a non-zero result remains.
+ *    remain, otherwise "_END_OF_ARGUMENTS something_here" will remain. This
+ *    remaining argument can start with parentheses.
+ * 3. In the former case, the _END_OF_ARGUMENTS_(0) macro expands to a
+ *    0 when it is expanded. In the latter, a non-zero result remains. If the
+ *    first argument started with parentheses these will mostly not contain
+ *    only a single 0, but e.g a C cast or some arithmetic operation that will
+ *    cause the BOOL in _END_OF_ARGUMENTS_ to be one.
  * 4. BOOL is used to force non-zero results into 1 giving the clean 0 or 1
  *    output required.
  */
-#define HAS_ARGS(...) BOOL(FIRST(_END_OF_ARGUMENTS_ __VA_ARGS__)())
-#define _END_OF_ARGUMENTS_() 0
+#define HAS_ARGS(...) BOOL(FIRST(_END_OF_ARGUMENTS_ __VA_ARGS__)(0))
+#define _END_OF_ARGUMENTS_(...) BOOL(FIRST(__VA_ARGS__))
 
 
 /**
